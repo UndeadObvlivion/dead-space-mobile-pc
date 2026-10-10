@@ -1,0 +1,21 @@
+shot C:/Users/Dillon/Documents/deadspace-port/devrun/01_gov_04.png
+a5273be8 GameObjectTelekinesisBeam    d=  0.36 pos 8.47 0.84 1.43 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20100116
+a453da18 GameObjectPlayable           d=  0.00 pos 8.59 1.00 1.13 box 8.10 -0.04 0.64 .. 9.08 2.04 1.62 flags=452416
+a527e280 GameObjectSpawnZone          d= 16.66 pos -8.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a527e690 GameObjectSpawnZone          d= 14.24 pos -5.00 0.00 -3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a527eaa0 GameObjectSpawnZone          d= 14.71 pos -6.00 0.00 2.75 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a527eeb0 GameObjectSpawnZone          d= 15.13 pos -6.00 0.00 -2.75 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a527f2c0 GameObjectSpawnZone          d= 13.63 pos -5.00 0.00 1.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a527f6d0 GameObjectSpawnZone          d= 13.29 pos -4.00 0.00 -3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a527fae0 GameObjectSpawnZone          d= 12.77 pos -4.00 0.00 3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a5277c58 GameObjectSpawnZone          d= 14.96 pos -6.00 0.00 -2.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a52802a0 ScriptWave                   d=  8.72 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a5280430 ScriptWave                   d=  8.72 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a52805c0 ScriptWave                   d=  8.72 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a5280750 GameObjectLocator            d=  8.89 pos 0.00 3.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5280eb8 SoundEmitter                 d=176.94 pos -40.00 0.00 -169.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5281278 SoundEmitter                 d=158.32 pos -41.97 1.47 -148.90 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5281b10 SoundEmitter                 d= 43.01 pos -9.00 4.00 -38.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5281f48 SoundEmitter                 d= 43.01 pos -9.00 4.00 -38.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a0fa5668 GameObjectSlasher            d=  1.96 pos 6.63 1.00 1.00 box 6.11 -0.04 0.48 .. 7.16 2.04 1.52 flags=20650016
+19 objects

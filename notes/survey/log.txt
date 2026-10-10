@@ -1,0 +1,35 @@
+started
+01_gov_01: 203 objects
+started
+01_gov_02: 126 objects
+started
+01_gov_03: 169 objects
+started
+01_gov_04: 19 objects
+started
+02_mines_01: 179 objects
+started
+02_mines_02: 144 objects
+started
+02_mines_03: 27 objects
+started
+03_water_01: 242 objects
+started
+03_water_02: 251 objects
+started
+03_water_03: 24 objects
+started
+04_food_01: 144 objects
+started
+04_food_02: 128 objects
+started
+04_food_03: 33 objects
+started
+05_tube_01: 119 objects
+started
+05_tube_03: 32 objects
+started
+06_titan_01: 191 objects
+started
+06_titan_reactor_01: 54 objects
+ALLDONE

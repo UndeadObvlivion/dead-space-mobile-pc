@@ -1,0 +1,253 @@
+shot C:/Users/Dillon/Documents/deadspace-port/devrun/03_water_02.png
+a5396b48 GameObjectPowerNodeLock      d=177.03 pos -0.22 -5.98 -143.38 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=000
+a538a080 GameObjectStompBox           d= 67.93 pos -38.23 -0.75 -6.62 box -38.62 -0.99 -7.07 .. -37.84 -0.52 -6.17 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a5371ea0 GameObjectStompBox           d=166.86 pos -15.01 -12.99 -140.77 box -15.45 -13.43 -141.22 .. -14.57 -12.54 -140.32 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a532a5b8 GameObjectStompBox           d= 53.76 pos -52.23 0.25 -3.62 box -52.62 0.01 -4.07 .. -51.84 0.48 -3.17 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a5403568 GameObjectStompBox           d= 54.74 pos -51.23 2.25 -0.62 box -51.68 2.01 -1.01 .. -50.78 2.48 -0.23 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a53febb8 GameObjectStompBox           d=167.67 pos -18.86 -7.05 -144.62 box -19.19 -7.49 -145.06 .. -18.53 -6.61 -144.17 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a539ff00 GameObjectStompBox           d=161.92 pos -21.73 -4.14 -139.77 box -22.12 -4.38 -140.21 .. -21.34 -3.90 -139.32 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a53ab720 GameObjectStompBox           d=167.94 pos -13.24 3.38 -141.58 box -13.63 2.89 -141.92 .. -12.85 3.87 -141.23 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a53a8e48 GameObjectStompBox           d=163.47 pos -12.43 -5.24 -135.51 box -12.89 -5.75 -135.98 .. -11.98 -4.73 -135.04 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a53b3108 GameObjectStompBox           d=174.03 pos -13.87 -3.01 -149.20 box -14.14 -3.42 -149.64 .. -13.60 -2.60 -148.75 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a5389578 GameObjectStompBox           d=171.61 pos -7.86 -3.01 -142.33 box -8.13 -3.42 -142.78 .. -7.59 -2.60 -141.88 flags=3830a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a534a900 GameObjectLocator            d= 30.79 pos -76.00 8.00 -0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a53abc30 GameObjectLocator            d=172.67 pos -18.00 8.00 -150.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a53b2d70 SoundEmitter                 d=123.00 pos -40.00 -85.00 -59.74 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a53a9540 SoundEmitter                 d=123.00 pos -40.00 -85.00 -59.74 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5361470 GameObjectPickup             d=106.48 pos 0.52 0.00 -0.44 box 0.42 -0.10 -0.54 .. 0.62 0.10 -0.34 flags=3830a0a2 int=0 plus=1 tk=0 use=0 reach=2.00 chk=000
+a53b0838 GameObjectPickup             d=105.96 pos 0.00 0.00 0.00 box -0.10 -0.10 -0.10 .. 0.10 0.10 0.10 flags=3830a0a2 int=0 plus=1 tk=0 use=0 reach=2.00 chk=000
+a5353598 GameObjectPickup             d=107.93 pos 1.98 0.00 -0.55 box 1.88 -0.10 -0.65 .. 2.08 0.10 -0.45 flags=3830a0a2 int=0 plus=1 tk=0 use=0 reach=2.00 chk=000
+a0c3c9e0 GameObjectPickup             d=106.95 pos 0.99 0.00 -0.10 box 0.89 -0.10 -0.20 .. 1.09 0.10 0.00 flags=3830a0a2 int=0 plus=1 tk=0 use=0 reach=2.00 chk=000
+a532f858 SoundEmitter                 d=115.66 pos -70.39 3.39 -111.60 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5354eb0 GameObjectCorpse             d=190.38 pos 66.00 8.00 -83.00 box 65.50 8.00 -83.50 .. 66.50 11.00 -82.50 flags=20310282
+a54c1898 GameObjectDoor               d=  4.19 pos -110.00 0.00 -1.26 box -109.93 -0.06 -2.45 .. -109.20 2.63 -0.08 flags=2010a016 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54c1d10 GameObjectDoor               d=117.95 pos 12.00 0.00 -1.00 box 12.07 -0.06 -2.18 .. 12.80 2.63 0.18 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54c2b00 GameObjectDoor               d=  7.02 pos -99.00 0.00 -1.26 box -98.93 -0.06 -2.45 .. -98.20 2.63 -0.08 flags=2010a016 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54c3d08 GameObjectDoor               d=173.95 pos 67.99 0.00 -3.03 box 66.81 -0.06 -3.83 .. 69.18 2.63 -3.10 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54c5020 GameObjectDoor               d=157.66 pos 49.08 0.00 -30.22 box 49.16 -0.06 -31.40 .. 49.88 2.63 -29.03 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54d4438 GameObjectDoor               d=172.82 pos 62.05 0.00 -42.10 box 62.12 -0.06 -43.28 .. 62.85 2.63 -40.92 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54d5338 GameObjectDoor               d=197.25 pos 14.00 -6.00 -158.00 box 12.82 -6.06 -157.93 .. 15.18 -3.37 -157.20 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54d6650 GameObjectDoor               d=280.00 pos 15.00 -6.00 -254.00 box 14.20 -6.06 -255.18 .. 14.93 -3.37 -252.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54d7968 GameObjectDoor               d=162.24 pos -25.00 -6.00 -142.00 box -24.93 -6.06 -143.18 .. -24.20 -3.37 -140.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54d8d28 GameObjectDoor               d=202.70 pos 50.00 -3.00 -131.00 box 49.20 -3.06 -132.18 .. 49.93 -0.37 -129.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54df8c0 GameObjectDoor               d=165.39 pos 18.00 -3.00 -111.00 box 18.07 -3.06 -112.18 .. 18.80 -0.37 -109.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e0c88 GameObjectDoor               d=174.07 pos 34.00 -3.00 -105.00 box 32.82 -3.06 -105.80 .. 35.18 -0.37 -105.07 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e2020 GameObjectDoor               d=160.21 pos 11.00 -3.00 -111.00 box 11.07 -3.06 -112.18 .. 11.80 -0.37 -109.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e33c8 GameObjectDoor               d=282.39 pos 42.00 -6.00 -242.00 box 41.20 -6.06 -243.18 .. 41.93 -3.37 -240.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e46a8 GameObjectDoor               d=285.22 pos 34.00 -6.00 -250.00 box 32.82 -6.06 -249.93 .. 35.18 -3.37 -249.20 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e59b8 GameObjectDoor               d=288.91 pos 21.00 -6.00 -261.00 box 19.82 -6.06 -260.93 .. 22.18 -3.37 -260.20 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e6cc8 GameObjectDoor               d=174.48 pos 11.00 -3.00 -131.00 box 11.07 -3.06 -132.18 .. 11.80 -0.37 -129.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e7fd8 GameObjectDoor               d=263.73 pos 34.00 -6.00 -225.00 box 32.82 -6.06 -224.93 .. 35.18 -3.37 -224.20 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54e9390 GameObjectDoor               d=179.25 pos 18.00 -3.00 -131.00 box 18.07 -3.06 -132.18 .. 18.80 -0.37 -129.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54ea680 GameObjectDoor               d=174.86 pos -2.00 -6.00 -142.00 box -1.93 -6.06 -143.18 .. -1.20 -3.37 -140.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54eb990 GameObjectDoor               d=126.23 pos 20.00 0.00 -10.00 box 19.20 -0.06 -11.18 .. 19.93 2.63 -8.82 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54ecca0 GameObjectLiftStop           d=190.06 pos 54.00 8.00 -104.00 box 50.12 8.00 -105.10 .. 50.12 9.58 -102.90 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=000
+a54ed9d0 GameObjectLiftStop           d=182.31 pos 58.00 8.00 -81.00 box 61.88 8.00 -82.10 .. 61.88 9.58 -79.90 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=000
+a54ee7f8 GameObjectLiftStop           d=227.26 pos 36.00 5.00 -179.00 box 39.88 5.00 -180.10 .. 39.88 6.58 -177.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54ef620 GameObjectLiftStop           d=224.78 pos 32.00 5.00 -179.00 box 28.12 5.00 -180.10 .. 28.12 6.58 -177.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54f0448 GameObjectLiftStop           d=243.35 pos 32.00 5.00 -202.00 box 28.12 5.00 -203.10 .. 28.12 6.58 -200.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54f1270 GameObjectLiftStop           d=245.64 pos 36.00 5.00 -202.00 box 39.88 5.00 -203.10 .. 39.88 6.58 -200.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a54f2098 Bench                        d=274.89 pos 6.99 -5.21 -252.10 box 6.52 -6.02 -252.75 .. 7.47 -4.40 -251.45 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=1.00 chk=000
+a54f3908 Bench                        d=123.63 pos 17.65 0.81 -4.31 box 17.00 -0.00 -4.79 .. 18.30 1.62 -3.84 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=1.00 chk=000
+a54f46e8 Bench                        d=199.61 pos 12.04 -5.19 -162.45 box 11.57 -6.00 -163.10 .. 12.52 -4.38 -161.80 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=1.00 chk=000
+a54f55e0 GameObjectPowerNodeLock      d=172.25 pos 66.29 0.00 -3.87 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=000
+a54f5f50 Store                        d=281.89 pos 6.40 -6.03 -260.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=1.00 chk=000
+a54f6dd0 Store                        d=123.42 pos 17.08 0.00 -11.37 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=1.00 chk=000
+a54c0100 GameObjectTelekinesable      d=166.91 pos 13.00 -2.12 -118.62 box 12.68 -3.03 -118.93 .. 13.32 -1.21 -118.30 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a54f8e18 GameObjectTelekinesable      d=167.34 pos 13.00 -2.12 -119.24 box 12.76 -3.03 -119.48 .. 13.24 -1.21 -119.00 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a54f9d48 GameObjectLighting           d=180.50 pos 61.00 -4.00 -70.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fb3c8 GameObjectLighting           d=192.34 pos 49.00 12.00 -115.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fb828 GameObjectLighting           d=207.12 pos 67.00 12.00 -115.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fbc88 GameObjectLighting           d=188.08 pos 44.00 -4.00 -115.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fc0e8 GameObjectLighting           d=256.58 pos 39.00 -10.00 -213.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fc548 GameObjectLighting           d=247.33 pos 22.00 -9.00 -213.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fc9a8 GameObjectLighting           d=238.58 pos 39.00 -4.00 -191.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fce08 GameObjectLighting           d=186.12 pos 67.00 8.00 -70.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fd268 GameObjectLighting           d=220.78 pos 39.00 -5.00 -168.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fd8d0 GameObjectLighting           d=228.70 pos 22.00 -6.00 -191.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fdc78 GameObjectLighting           d=209.97 pos 22.00 -3.00 -168.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fe090 GameObjectLighting           d=169.62 pos 49.00 10.00 -70.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fe4f8 GameObjectLighting           d=164.90 pos 44.00 -4.00 -70.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fe948 GameObjectLighting           d=190.41 pos 61.00 -4.00 -93.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54feda8 GameObjectLighting           d=195.88 pos 67.00 11.00 -93.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54ff208 GameObjectLighting           d=175.69 pos 44.00 -4.00 -93.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54ff668 GameObjectLighting           d=180.19 pos 49.00 11.00 -93.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54ffac8 GameObjectLighting           d=201.90 pos 61.00 -4.00 -115.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fff28 GameObjectLighting           d=140.20 pos 34.00 1.00 -10.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5500388 GameObjectLighting           d=130.22 pos 24.00 1.00 -10.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55007e8 GameObjectLighting           d=172.63 pos 55.00 1.00 -64.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5500c48 GameObjectLighting           d=179.48 pos 55.00 1.00 -81.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55010a8 GameObjectLighting           d=190.78 pos 55.00 1.00 -104.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5501508 GameObjectLighting           d=200.42 pos 55.00 1.00 -121.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5501968 GameObjectLighting           d=244.13 pos 33.00 -10.00 -202.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5501dc8 GameObjectLighting           d=258.05 pos 33.00 -2.00 -219.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5502228 GameObjectLighting           d=212.32 pos 33.00 -5.00 -162.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5502688 GameObjectLighting           d=225.54 pos 33.00 -8.00 -179.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5502ae8 GameObjectLighting           d=207.94 pos 56.00 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5502f48 GameObjectLighting           d=201.77 pos 48.00 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55033a8 GameObjectLighting           d=197.98 pos 43.00 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5503808 GameObjectLighting           d=194.25 pos 38.00 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5503c68 GameObjectLighting           d=190.57 pos 33.00 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55040c8 GameObjectLighting           d=186.52 pos 33.00 1.00 -126.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5504528 GameObjectLighting           d=183.22 pos 33.00 1.00 -121.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5504988 GameObjectLighting           d=180.64 pos 33.00 1.00 -117.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5504de8 GameObjectLighting           d=177.49 pos 33.00 1.00 -112.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5505248 GameObjectLighting           d=186.75 pos 27.71 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55056a8 GameObjectLighting           d= 29.65 pos -77.00 1.00 -8.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5505b08 GameObjectLighting           d=183.42 pos 23.01 1.00 -132.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5505f68 GameObjectLighting           d=173.45 pos 27.71 1.00 -112.12 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55063c8 GameObjectLighting           d=169.86 pos 23.01 1.00 -112.12 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5506828 GameObjectLighting           d=194.36 pos 33.00 1.00 -137.48 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5506c88 GameObjectLighting           d=198.85 pos 33.00 -2.39 -143.77 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55070e8 GameObjectLighting           d=204.65 pos 33.00 -4.40 -151.72 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5507548 GameObjectLighting           d=201.13 pos 27.77 -4.40 -151.72 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55079a8 GameObjectLighting           d=197.41 pos 22.10 -4.40 -151.72 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5507e08 GameObjectLighting           d=195.55 pos 19.22 -4.40 -151.72 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5508268 GameObjectLighting           d=192.05 pos 14.00 -4.40 -151.46 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55086c8 GameObjectLighting           d= 96.16 pos -10.00 1.00 -8.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5508b28 GameObjectLighting           d=188.30 pos 14.00 -4.40 -146.62 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5508f88 GameObjectLighting           d=178.10 pos 3.69 -4.40 -141.82 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55093e8 GameObjectLighting           d=268.26 pos 33.00 -4.50 -230.98 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5509848 GameObjectLighting           d=278.28 pos 33.92 -4.50 -242.08 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5509ca8 GameObjectLighting           d=271.79 pos 20.53 -4.50 -242.08 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550a108 GameObjectLighting           d=282.43 pos 20.53 -4.50 -254.04 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550a568 GameObjectLighting           d=277.28 pos 8.57 -4.50 -254.04 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550a9c8 GameObjectLighting           d=275.12 pos 3.23 -4.50 -254.04 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550ae28 GameObjectLighting           d=272.12 pos -4.56 -4.50 -254.04 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550b288 GameObjectLighting           d=169.27 pos 55.00 1.00 -54.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550b6e8 GameObjectLighting           d=163.44 pos 55.00 1.00 -30.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54f7c50 GameObjectLighting           d=197.57 pos 55.00 7.00 -116.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54f80b0 GameObjectLighting           d=185.20 pos 55.00 7.00 -93.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550ca08 GameObjectLighting           d=173.84 pos 55.00 7.00 -67.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550ce68 GameObjectLighting           d=165.95 pos 55.00 1.00 -42.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550d2c8 GameObjectLighting           d=174.15 pos 68.00 1.00 -10.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550d728 GameObjectLighting           d=162.16 pos 56.00 1.00 -10.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550db88 GameObjectLighting           d=150.18 pos 44.00 1.00 -10.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550dfe8 GameObjectDoor               d=194.09 pos 34.00 -3.00 -136.00 box 32.82 -3.06 -136.80 .. 35.18 -0.37 -136.07 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a550f430 GameObjectDoor               d=171.54 pos 56.00 -3.00 -58.00 box 54.82 -3.06 -58.80 .. 57.18 -0.37 -58.07 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a5510740 GameObjectDoor               d=204.88 pos 56.00 -3.00 -127.00 box 54.82 -3.06 -126.93 .. 57.18 -0.37 -126.20 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a5511a50 GameObjectDoor               d=209.27 pos 34.00 -6.00 -157.00 box 32.82 -6.06 -156.93 .. 35.18 -3.37 -156.20 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a5512f60 SoundEmitter                 d= 98.49 pos -9.69 4.00 -22.22 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a54fd6c8 SoundEmitter                 d=103.61 pos -9.00 4.00 -38.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5513a10 SoundEmitter                 d= 98.49 pos -9.69 4.00 -22.22 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5513e30 SoundEmitter                 d= 98.49 pos -9.69 4.00 -22.22 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a55142b0 GameObjectDoor               d= 50.96 pos -55.00 0.00 -1.00 box -54.93 -0.06 -2.18 .. -54.20 2.63 0.18 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a55157f0 GameObjectDoor               d= 73.95 pos -32.00 0.00 -1.26 box -31.93 -0.06 -2.45 .. -31.20 2.63 -0.08 flags=2010a026 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a5516af0 GameObjectShootSwitch        d=156.91 pos 7.40 -1.16 -110.05 box 7.23 -1.45 -110.26 .. 7.57 -0.87 -109.85 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=100
+a5517fe8 GameObjectShootSwitch        d=172.88 pos 34.95 -1.16 -101.72 box 34.74 -1.45 -101.90 .. 35.15 -0.87 -101.55 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=100
+a55188e0 GameObjectShootSwitch        d=172.77 pos 7.39 -1.16 -131.95 box 7.22 -1.45 -132.16 .. 7.57 -0.87 -131.75 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=3.00 chk=100
+a55195f8 GameObjectLocker             d=201.50 pos 13.95 -4.42 -163.42 box 13.61 -4.77 -163.59 .. 14.29 -4.08 -163.26 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a551a470 GameObjectLocator            d=278.08 pos 19.00 1.00 -250.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551a8a8 GameObjectLocator            d= 23.97 pos -82.00 0.00 -1.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551ac68 GameObjectLocator            d=165.98 pos -10.00 0.00 -137.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551b0d0 GameObjectLocator            d=285.06 pos 2.75 -6.00 -265.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551b520 GameObjectLocator            d=164.20 pos 35.97 6.00 -84.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551b980 GameObjectLocator            d=293.37 pos 21.00 6.00 -266.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551bde0 GameObjectLocator            d= 20.03 pos -86.00 0.00 -0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a551c240 GameObjectLocator            d=168.69 pos -14.00 0.00 -143.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a606c9d8 GameObjectTelekinesisBeam    d=  0.31 pos -105.80 0.95 -1.83 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20100116
+a551c6a0 GameObjectPlayable           d=  0.00 pos -105.95 1.00 -1.57 box -106.44 -0.04 -2.06 .. -105.46 2.04 -1.08 flags=452416
+a60a7038 SoundEmitter                 d=200.82 pos -18.19 1.16 -182.20 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60a73f8 SoundEmitter                 d=200.82 pos -18.19 1.16 -182.20 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60a77b8 SoundEmitter                 d=200.82 pos -18.19 1.16 -182.20 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60a7b78 GameObjectLiftStop           d=189.98 pos 54.00 -3.00 -104.00 box 50.03 -3.00 -105.10 .. 52.88 -1.42 -102.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a60a8260 GameObjectLiftStop           d=182.22 pos 58.00 -3.00 -81.00 box 59.12 -3.00 -82.10 .. 61.97 -1.42 -79.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a60a9328 GameObjectLift               d=189.98 pos 54.00 -3.00 -104.00 box 50.12 -3.20 -104.86 .. 54.00 -1.00 -103.14 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=2.00 chk=000
+a60abc00 GameObjectLift               d=182.22 pos 58.00 -3.00 -81.00 box 58.00 -3.20 -81.86 .. 61.88 -1.00 -80.14 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=2.00 chk=000
+a60b0b48 GameObjectExplosive          d=160.45 pos 13.19 -2.14 -109.00 box 12.90 -3.00 -109.28 .. 13.48 -1.28 -108.72 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60b1528 GameObjectExplosive          d=179.82 pos 16.76 -2.14 -132.97 box 16.47 -3.00 -133.25 .. 17.05 -1.28 -132.69 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60b2e40 GameObjectExplosive          d=171.71 pos 16.76 -2.14 -121.64 box 16.47 -3.00 -121.92 .. 17.05 -1.28 -121.36 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60b3af8 GameObjectStompBox           d=177.38 pos 13.50 -2.76 -132.65 box 12.96 -3.00 -133.22 .. 14.05 -2.52 -132.08 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60b4b48 GameObjectLocator            d=167.44 pos 19.00 -2.00 -113.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60b5140 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60b53c0 GameObjectSpawnZone          d=160.72 pos 14.00 -3.00 -108.48 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b5890 GameObjectSpawnZone          d=167.06 pos 12.81 -3.00 -119.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b5d60 GameObjectSpawnZone          d=178.23 pos 14.09 -2.57 -133.27 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b6240 GameObjectSpawnZone          d=160.72 pos 14.00 -3.00 -108.48 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b6720 GameObjectSpawnZone          d=179.69 pos 15.85 -3.00 -133.62 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b6c00 GameObjectSpawnZone          d=167.06 pos 12.81 -3.00 -119.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b70e0 GameObjectSpawnZone          d=178.23 pos 14.09 -2.57 -133.27 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b75c0 GameObjectSpawnZone          d=179.69 pos 15.85 -3.00 -133.62 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60b7aa0 ScriptWave                   d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60b7da8 ScriptWave                   d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60b7fb0 GameObjectLiftStop           d=227.33 pos 36.00 -6.00 -179.00 box 37.12 -6.00 -180.10 .. 39.97 -4.42 -177.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a60b9010 GameObjectLiftStop           d=224.86 pos 32.00 -6.00 -179.00 box 28.03 -6.00 -180.10 .. 30.88 -4.42 -177.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a60ba028 GameObjectLiftStop           d=243.41 pos 32.00 -6.00 -202.00 box 28.03 -6.00 -203.10 .. 30.88 -4.42 -200.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a60bb040 GameObjectLiftStop           d=245.70 pos 36.00 -6.00 -202.00 box 37.12 -6.00 -203.10 .. 39.97 -4.42 -200.90 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=3.00 chk=000
+a60bc058 GameObjectLift               d=227.26 pos 36.00 5.00 -179.00 box 36.00 4.80 -179.86 .. 39.88 7.00 -178.14 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=2.00 chk=000
+a60be950 GameObjectLift               d=224.78 pos 32.00 5.00 -179.00 box 28.12 4.80 -179.86 .. 32.00 7.00 -178.14 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=2.00 chk=000
+a60c21c0 GameObjectLift               d=243.35 pos 32.00 5.00 -202.00 box 28.12 4.80 -202.86 .. 32.00 7.00 -201.14 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=2.00 chk=000
+a60c5a48 GameObjectLift               d=245.64 pos 36.00 5.00 -202.00 box 36.00 4.80 -202.86 .. 39.88 7.00 -201.14 flags=2010a0a6 int=0 plus=0 tk=0 use=0 reach=2.00 chk=000
+a60c92a8 GameObjectLocator            d=250.30 pos 54.00 -5.00 -194.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60cacd0 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60caea8 GameObjectSpawnZone          d=223.34 pos 37.00 -6.00 -173.03 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cb2b8 GameObjectSpawnZone          d=241.32 pos 37.00 -6.00 -195.87 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cb6c8 GameObjectSpawnZone          d=229.87 pos 31.00 -6.00 -186.06 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cbad8 GameObjectSpawnZone          d=250.36 pos 31.00 -6.00 -211.03 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cbee8 GameObjectSpawnZone          d=219.58 pos 31.00 -6.00 -173.07 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cc2f8 GameObjectSpawnZone          d=237.97 pos 31.00 -6.00 -196.06 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cc738 GameObjectSpawnZone          d=233.48 pos 37.00 -6.00 -186.04 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60ccc08 GameObjectSpawnZone          d=253.65 pos 37.00 -6.00 -210.99 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cd0d8 GameObjectSpawnZone          d=233.39 pos 37.00 -6.00 -185.93 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cd5b8 GameObjectSpawnZone          d=229.83 pos 31.04 -6.00 -185.99 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cda98 GameObjectSpawnZone          d=257.83 pos 34.00 -6.00 -218.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cdf78 GameObjectSpawnZone          d=242.92 pos 34.00 -6.00 -200.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60ce458 GameObjectSpawnZone          d=233.45 pos 37.00 -6.00 -186.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60ce938 GameObjectSpawnZone          d=229.78 pos 30.98 -6.00 -185.96 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cee18 GameObjectSpawnZone          d=223.40 pos 37.00 -6.00 -173.11 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cf2f8 GameObjectSpawnZone          d=219.49 pos 30.98 -6.00 -172.97 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60cf7d8 ScriptWave                   d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60cfa28 ScriptWave                   d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60cfc60 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60cfec8 GameObjectSlasher            d=166.97 pos 57.00 1.00 -38.00 box 56.47 -0.04 -38.53 .. 57.53 2.04 -37.47 flags=20250022
+a11f3910 GameObjectSpawnZone          d=170.23 pos 56.00 -1.00 -54.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a11f3dc8 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a11f4048 SoundEmitter                 d= 86.77 pos -46.22 -11.84 -63.18 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a11f44c8 GameObjectSpawnZone          d=121.47 pos 15.00 0.00 -12.80 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a11f4998 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a11f4c00 GameObjectSpawnZone          d=192.52 pos 14.00 -6.00 -152.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60dac88 GameObjectStompBox           d=191.16 pos 66.45 8.26 -83.85 box 65.86 8.02 -84.41 .. 67.03 8.50 -83.29 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60dbb68 GameObjectStompBox           d=189.21 pos 45.32 8.26 -115.00 box 44.74 8.02 -115.56 .. 45.90 8.50 -114.44 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60dcb60 GameObjectLocator            d=190.36 pos 65.83 11.00 -82.99 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60dcf98 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60dd218 SoundEmitter                 d= 95.59 pos -15.00 0.00 -31.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60dd698 GameObjectSpawnZone          d=189.65 pos 66.99 9.00 -79.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60ddb68 ScriptQuarantine             d=105.96 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a60ddde8 GameObjectSpawnZone          d=204.06 pos 66.33 8.00 -110.73 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60de2b8 GameObjectSpawnZone          d=188.29 pos 52.00 -3.00 -104.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60de788 GameObjectSpawnZone          d=183.68 pos 45.00 8.00 -106.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60dec58 GameObjectLocator            d=174.00 pos 68.00 1.00 -5.80 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60df0a8 GameObjectLocator            d=165.56 pos 55.97 3.00 -36.05 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e3e78 GameObjectLocator            d= 80.30 pos -25.68 3.00 -0.28 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e4250 GameObjectLocator            d= 86.59 pos -19.39 3.00 -0.28 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e46a0 GameObjectLocator            d=161.44 pos 55.00 3.00 -14.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e4b00 ScriptScurry                 d=173.89 pos 67.92 0.00 -4.38 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e4f90 GameObjectSpawnZone          d=174.20 pos 68.00 1.00 -11.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a60e5470 GameObjectLocator            d=170.27 pos 56.00 -3.00 -54.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e58d0 GameObjectLocator            d=171.96 pos 55.00 -3.00 -62.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e5d30 GameObjectLocator            d=202.45 pos 56.00 -3.00 -123.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e6190 GameObjectLocator            d=206.57 pos 55.00 -3.00 -131.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e65f0 GameObjectLocator            d=206.26 pos 35.00 -6.00 -152.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e6a50 GameObjectLocator            d=210.92 pos 33.00 -8.00 -160.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e6eb0 GameObjectLocator            d=260.35 pos 34.00 -6.00 -221.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e7310 GameObjectLocator            d=266.61 pos 33.00 -6.00 -229.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e7770 GameObjectLocator            d=195.04 pos 18.00 -6.00 -152.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e7bd0 SoundEmitter                 d=200.83 pos 20.00 1.00 -158.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e8060 SoundEmitter                 d=186.10 pos 56.00 8.00 -93.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60e84f0 SoundEmitter                 d=235.55 pos 34.00 5.00 -191.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550bb48 GameObjectLocator            d= 51.96 pos -54.00 0.00 -1.26 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550bfa8 SoundEmitter                 d=142.46 pos -51.00 2.00 -133.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a550c438 SoundEmitter                 d=142.46 pos -51.00 2.00 -133.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60ea810 GameObjectLocker             d=175.89 pos 69.90 0.27 1.98 box 69.60 0.00 1.58 .. 70.21 0.54 2.37 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a60eb8d0 GameObjectLocker             d=179.21 pos 73.23 0.27 1.98 box 72.93 0.00 1.58 .. 73.54 0.54 2.37 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a60ec260 GameObjectLocker             d=177.21 pos 71.23 1.08 2.20 box 71.01 0.09 1.94 .. 71.44 2.08 2.46 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a60ed330 GameObjectLocker             d=176.75 pos 70.76 1.08 2.20 box 70.54 0.09 1.94 .. 70.98 2.08 2.46 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a60ede68 GameObjectLocker             d=177.67 pos 71.69 1.08 2.20 box 71.47 0.09 1.94 .. 71.90 2.08 2.46 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a60ee858 GameObjectLocker             d=177.20 pos 71.26 1.55 -2.47 box 70.88 1.11 -2.60 .. 71.63 1.99 -2.34 flags=2010a0a6 int=1 plus=0 tk=0 use=1 reach=2.00 chk=111
+a60ef840 GameObjectStompBox           d=172.94 pos 66.97 0.24 1.29 box 66.39 0.00 0.73 .. 67.55 0.48 1.85 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60f07d0 GameObjectStompBox           d=177.96 pos 72.01 0.24 -1.41 box 71.43 0.00 -1.97 .. 72.60 0.48 -0.85 flags=3030a0a2 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a60f1808 GameObjectLocator            d=176.55 pos 44.98 -0.10 -93.17 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60f1c28 SoundEmitter                 d=153.52 pos 7.00 -85.00 -60.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60f2060 SoundEmitter                 d=115.66 pos -70.39 3.39 -111.60 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a60f2980 SoundEmitter                 d=115.66 pos -70.39 3.39 -111.60 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+251 objects

@@ -1,0 +1,33 @@
+# game files (copyrighted, not part of this repository: supply your own APK)
+/apk/
+/dist/
+*.apk
+*.so
+*.obb
+
+# builds, debug binaries
+/build/
+/symbols/
+*.exe
+*.dmp
+
+# saves, test profiles, captures, logs
+/devrun/
+/shots/
+/menudata/
+/menutest/
+/stage2data/
+/wr3/
+/freshdata/
+/nl_*/
+userdata/
+/notes/testlogs/
+/notes/survey/*.png
+
+# dumps of the game's own code and strings
+/notes/dex_dump.txt
+/notes/guest_strings.txt
+/notes/fanhost_strings.txt
+/notes/PadActivity.txt
+/notes/player_onEvent.txt
+/notes/addToggleWidget.txt

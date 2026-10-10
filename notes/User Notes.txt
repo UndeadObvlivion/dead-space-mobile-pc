@@ -1,0 +1,17 @@
+Dead Space Mobile Port User Notes
+
+1: Mouse sensitivity needs addressed, currently it is too high. Maybe look into adding some kind of mouse smoothing that can be turned off an on in the settings menu?
+
+2: change aiming behavior. Right now when the character is walking or sprinting the camera wants to return to its original viewing angle, this can be annoying when aiming with the mouse and this behavior needs to be removed.
+
+3: More settings in the settings tab need to be added. Including a new page just for control remapping for keyboard and mouse. plus a mouse sensitivity setting with an adjustable percentage bar. You can add multiple new pages to the settings menu to keep things readable for a player.
+
+4: Look into how the interaction button selects what to interact with around the player, this should only interact with what the player is currently facing, right now it will interact with anything around the character regardless if they are looking at it or not eg opening every locker within 20ft of the player before grabbing the item right in front of them.
+
+5. I noticed in the second stage of the game there is glass that will project a reflection of the player character but currently I think the reflection is not being displayed correctly because the reflected character is moving in the opposite direction it is supposed to be going in.
+
+6. In the second stage there is a section where I am supposed to access a control panel after a room lockdown but I cannot interact with it. This may be fixed by us messing with how interaction works in line 4.
+
+7. Change behavior of left click when not aiming down sights to be the melee instead of pulling up the gun to fire.
+
+8. when player isn't moving see if you can detach the character rotation from the camera rotation so the player can look around the character model. when movement or aiming resumes snap the character to look in the direction of the camera

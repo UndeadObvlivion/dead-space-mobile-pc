@@ -1,0 +1,29 @@
+shot C:/Users/Dillon/Documents/deadspace-port/devrun/02_mines_03.png
+a45408b0 GameObjectExplosive          d= 11.75 pos -3.00 0.86 2.60 box -3.31 -0.00 2.31 .. -2.70 1.72 2.89 flags=3870a096 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a4541918 GameObjectExplosive          d= 17.75 pos -9.06 0.86 -2.98 box -9.41 -0.00 -3.32 .. -8.72 1.72 -2.65 flags=3870a096 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a4542978 GameObjectStompBox           d=  2.30 pos 9.00 0.24 2.01 box 8.61 -0.00 1.56 .. 9.39 0.47 2.46 flags=3870a096 int=0 plus=0 tk=0 use=0 reach=1.00 chk=000
+a523dec8 GameObjectTelekinesisBeam    d=  0.31 pos 8.26 1.00 0.18 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20100116
+a4543ab8 GameObjectPlayable           d=  0.00 pos 8.44 1.04 -0.07 box 7.95 -0.00 -0.56 .. 8.93 2.08 0.42 flags=452416
+a5248558 SoundEmitter                 d=157.14 pos -41.97 1.47 -148.90 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5248cd8 SoundEmitter                 d= 41.86 pos -9.00 4.00 -38.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a5249098 SoundEmitter                 d=165.90 pos 34.03 1.00 163.85 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100a16
+a52495e0 GameObjectSpawnZone          d= 17.47 pos -9.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a52499f0 GameObjectSpawnZone          d= 11.81 pos -2.95 0.00 -3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a5249e00 ScriptWave                   d=  8.51 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a5249f90 GameObjectSpawnZone          d= 15.73 pos -6.97 0.00 2.87 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524a3a0 GameObjectSpawnZone          d= 18.17 pos -9.66 0.00 -1.23 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524a7b0 GameObjectSpawnZone          d= 13.52 pos -5.00 0.00 1.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524abc0 ScriptWave                   d=  8.51 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a524ad50 GameObjectSpawnZone          d= 14.80 pos -6.00 0.00 3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524b160 GameObjectSpawnZone          d=  9.00 pos 0.00 0.00 -3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524b570 GameObjectSpawnZone          d= 10.87 pos -1.94 0.00 3.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524b980 GameObjectSpawnZone          d= 11.77 pos -2.96 0.00 -2.78 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=10100a16
+a524bd90 ScriptWave                   d=  8.51 pos 0.00 0.00 0.00 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=100916
+a0c51bc0 GameObjectLurker             d=  6.83 pos 2.00 0.12 2.00 box 1.75 -0.13 1.75 .. 2.25 0.38 2.25 flags=20650016
+a134d8d8 GameObjectProjectileLurker   d=  1.68 pos 6.80 1.08 0.29 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20101216
+a0c2ac78 GameObjectProjectileLurker   d=  1.66 pos 6.86 1.11 0.45 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20101216
+a0c2b030 GameObjectProjectileLurker   d=  1.68 pos 6.90 1.06 0.59 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20101216
+a134d6c0 GameObjectProjectileLurker   d=  6.08 pos 2.50 1.20 1.24 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20101216
+a1066ae0 GameObjectProjectileLurker   d=  6.06 pos 2.68 1.29 1.80 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20101216
+a10679d0 GameObjectProjectileLurker   d=  6.08 pos 2.85 1.13 2.30 box 0.00 0.00 0.00 .. 0.00 0.00 0.00 flags=20101216
+27 objects

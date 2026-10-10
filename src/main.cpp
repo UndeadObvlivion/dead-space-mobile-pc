@@ -25,6 +25,7 @@
 #include "console.h"
 #include "devmode.h"
 #include "input.h"
+#include "lights.h"
 #include "menu_nav.h"
 #include "render/native.h"
 #include "hle/gles.h"
@@ -347,7 +348,7 @@ int main(int argc, char** argv) {
         LOGE("SDL_GL_CreateContext: %s", SDL_GetError());
         return 1;
     }
-    SDL_GL_SetSwapInterval(1);
+    SDL_GL_SetSwapInterval(settings::get_int("vsync", 1) ? 1 : 0);
     hle::gles_init_host();
     // the game always sees a fixed "device screen"; the frontend scales it to the window
     hle::present_init(g_config.screen_w, g_config.screen_h, settings::get_int("msaa", 4));
@@ -358,6 +359,11 @@ int main(int argc, char** argv) {
         render::set_bloom(settings::get_int("bloom", 1));
         render::set_sharpen(settings::get_int("sharpen", 1));
         render::set_ao(settings::get_int("ambient_occlusion", 1));
+        render::set_lights(settings::get_int("dynamic_lights", 2));
+        render::set_specular(settings::get_int("specular", 2));
+        render::set_shadows(settings::get_int("shadows", 2));
+        render::set_light_shadows(settings::get_int("light_shadows", 1) != 0);
+        render::set_vignette(settings::get_int("vignette", 1) != 0);
     }
     else LOGW("native renderer unavailable; using the legacy path");
 
@@ -368,6 +374,7 @@ int main(int argc, char** argv) {
 
     patches::install();
     input::install();
+    lights::install();
     console::install();
     menu_nav::install();
     LOGI("running %zu static constructors", elf::g_game.init_array.size());
@@ -434,6 +441,7 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&e)) {
             float gx, gy;
             if (console::event(e)) continue;
+            if (e.type == SDL_MOUSEWHEEL && patches::options_wheel(e.wheel.y)) continue;  // scrolls an options page
             if (e.type == SDL_KEYDOWN && e.key.keysym.scancode == SDL_SCANCODE_ESCAPE) menu_nav::hide();
             if (input::event(e, win)) continue;
             if (menu_nav::event(e, input::controls_active())) continue;
@@ -511,7 +519,7 @@ int main(int argc, char** argv) {
                 render::end_frame();
             }
         } else if (ff_vsync_off) {
-            SDL_GL_SetSwapInterval(1);
+            SDL_GL_SetSwapInterval(settings::get_int("vsync", 1) ? 1 : 0);
             ff_vsync_off = false;
         }
         {  // frames per second, averaged over half a second (Options: Show FPS)

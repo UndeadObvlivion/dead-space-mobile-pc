@@ -13,6 +13,8 @@
 
 #include "devmode.h"
 #include "interact.h"
+#include "debugview.h"
+#include "render/native.h"
 
 #include <algorithm>
 #include <atomic>
@@ -282,12 +284,20 @@ void tick_free_look(u32 player, int dt_ms) {
 
 // CameraController::getLookAtTransform(out, eye, target, up): the controller has just written its
 // eye/target/up for this frame; orbit them around the player by the free-look yaw.
+float g_cam[9] = {};  // eye, target, up of the gameplay camera as last computed
+u32 g_cam_ms = 0;
+void record_camera(cpu::Ctx& c) {
+    for (int i = 0; i < 3; i++)
+        for (int k = 0; k < 3; k++) g_cam[i * 3 + k] = f32(c.reg(1 + i) + u32(k) * 4);
+    g_cam_ms = SDL_GetTicks();
+}
 void on_look_at(cpu::Ctx& c) {
     u32 player = g_player;
-    // only while that player is alive and updating (not during level loads)
-    if (g_free_yaw == 0 || !player || g_frames_without_player > 2) return;
     u32 lr = c.lr();
     if (std::find(std::begin(g_lookat_sites), std::end(g_lookat_sites), lr) == std::end(g_lookat_sites)) return;
+    record_camera(c);
+    // only while that player is alive and updating (not during level loads)
+    if (g_free_yaw == 0 || !player || g_frames_without_player > 2) return;
     u32 body = mem::r32(player + 0x58);  // btRigidBody: basis rows at +4, origin at +0x34
     if (!body) return;
     float px = f32(body + 0x34), pz = f32(body + 0x3c);
@@ -302,6 +312,7 @@ void on_look_at(cpu::Ctx& c) {
     float ux = f32(up), uz = f32(up + 8);
     wf32(up, ux * cs + uz * sn);
     wf32(up + 8, -ux * sn + uz * cs);
+    record_camera(c);
 }
 
 void on_player_update(cpu::Ctx& c) {
@@ -403,6 +414,7 @@ void on_player_update(cpu::Ctx& c) {
         }
     }
     if (g_interact_debug && !g_paused) interact::draw_debug(player, g_world, g_free_yaw);
+    if (!g_paused) debugview::draw(player, g_world);
     if (g_player_tick % 30 == 0) interact::repair_objective_panel(g_world);
     if (g_state != 0 && g_free_yaw != 0) {
         turn_free_look(player, g_free_yaw);
@@ -534,8 +546,17 @@ void run_on_game_thread(std::function<void(unsigned)> fn) {
     g_jobs.push_back(std::move(fn));
 }
 unsigned world() { return g_world; }
+unsigned player() { return g_frames_without_player > 2 ? 0u : unsigned(g_player); }
+bool camera(float eye[3], float target[3], float up[3]) {
+    if (SDL_GetTicks() - g_cam_ms > 100) return false;
+    std::memcpy(eye, g_cam, 12);
+    std::memcpy(target, g_cam + 3, 12);
+    std::memcpy(up, g_cam + 6, 12);
+    return true;
+}
 float free_look_yaw() { return g_free_yaw; }
 void set_interact_debug(bool on) { g_interact_debug = on; }
+bool interact_debug() { return g_interact_debug; }
 bool controls_active() { return g_mouse_captured; }
 void begin_capture(int i) { g_capture = i; }
 bool capturing() { return g_capture >= 0; }
@@ -652,6 +673,21 @@ void release_action(int b) {
 bool press_code(int code) {
     if (code == SDL_SCANCODE_F9) {  // interaction report (see interact.cpp)
         push({EV_INTERACT, 1});
+        return true;
+    }
+    if (code == SDL_SCANCODE_F5) {  // painted vertex lighting: normal / hidden / alone
+        render::set_vertex_color_debug((render::vertex_color_debug() + 1) % 3);
+        LOGI("vertex lighting debug mode %d", render::vertex_color_debug());
+        return true;
+    }
+    if (code == SDL_SCANCODE_F6) {  // light placement view
+        debugview::set_lights(!debugview::lights());
+        LOGI("light debug view %s", debugview::lights() ? "on" : "off");
+        return true;
+    }
+    if (code == SDL_SCANCODE_F7) {  // hitbox view
+        debugview::set_hitboxes(!debugview::hitboxes());
+        LOGI("hitbox debug view %s", debugview::hitboxes() ? "on" : "off");
         return true;
     }
     if (code == SDL_SCANCODE_F10) {  // interaction debug view

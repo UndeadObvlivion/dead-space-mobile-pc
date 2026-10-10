@@ -47,36 +47,60 @@ const Lang kLangs[] = {
     {"zh-cn", "抗锯齿", "关"},
 };
 
-// Port option rows, added on pages after the game's own three (three rows per page):
-// mouse settings, then one key-binding row per rebindable action, then "Reset Controls".
+// Port option rows. They sit on two category pages after the game's own three: "Graphics" and
+// "Controls". A category page holds all of its rows one under the other and scrolls vertically.
 struct PortRow {
     std::string key;    // entity names BTN_PORT_<key>; label id OPTIONS_PORT_<key>
     std::string label;  // English label (all languages)
     bool slider;
     int bind;           // input binding index, or -1
+    int page;           // 4 = Graphics, 5 = Controls
+    int row;            // position on that page, from the top
 };
 const int kFpsLimits[5] = {60, 120, 144, 240, 0};  // Frame Rate Limit options (0 = unlimited)
+constexpr int kGamePages = 3, kPageGraphics = 4, kPageControls = 5;
+constexpr float kRowPitch = 37.0f, kRowTop = 19.0f, kRowScale = 0.8f;  // layout units (the game spaces its rows 60 apart)
 const std::vector<PortRow>& port_rows() {
     static const std::vector<PortRow> rows = [] {
-        std::vector<PortRow> r = {{"MOUSE_SENS", "Mouse Sensitivity", true, -1},
-                                  {"SMOOTHING", "Mouse Smoothing", false, -1},
-                                  {"FREE_LOOK", "Free Look (Standing)", false, -1},
-                                  {"RENDERER", "Renderer", false, -1},
-                                  {"TEXFILTER", "Texture Filtering", false, -1},
-                                  {"BLOOM", "Bloom", false, -1},
-                                  {"SHARPEN", "Sharpening", false, -1},
-                                  {"AO", "Ambient Occlusion", false, -1},
-                                  {"SHOW_FPS", "Show FPS", false, -1},
-                                  {"FPS_LIMIT", "Frame Rate Limit", false, -1}};
+        std::vector<PortRow> r = {{"RENDERER", "Renderer", false, -1, kPageGraphics, 0},
+                                  {"TEXFILTER", "Texture Filtering", false, -1, kPageGraphics, 0},
+                                  {"BLOOM", "Bloom", false, -1, kPageGraphics, 0},
+                                  {"SHARPEN", "Sharpening", false, -1, kPageGraphics, 0},
+                                  {"AO", "Ambient Occlusion", false, -1, kPageGraphics, 0},
+                                  {"DLIGHTS", "Dynamic Lights", false, -1, kPageGraphics, 0},
+                                  {"SPECULAR", "Specular Highlights", false, -1, kPageGraphics, 0},
+                                  {"SHADOWS", "Shadows", false, -1, kPageGraphics, 0},
+                                  {"LIGHT_SHADOWS", "Light Shadows", false, -1, kPageGraphics, 0},
+                                  {"VIGNETTE", "Vignette", false, -1, kPageGraphics, 0},
+                                  {"VSYNC", "V-Sync", false, -1, kPageGraphics, 0},
+                                  {"FPS_LIMIT", "Frame Rate Limit", false, -1, kPageGraphics, 0},
+                                  {"SHOW_FPS", "Show FPS", false, -1, kPageGraphics, 0},
+                                  {"MOUSE_SENS", "Mouse Sensitivity", true, -1, kPageControls, 0},
+                                  {"SMOOTHING", "Mouse Smoothing", false, -1, kPageControls, 0},
+                                  {"FREE_LOOK", "Free Look (Standing)", false, -1, kPageControls, 0}};
         for (int i = 0; i < input::binding_count(); i++)
-            r.push_back({"BIND_" + std::to_string(i), input::binding(i).label, false, i});
-        r.push_back({"RESET_BINDS", "Reset Controls", false, -1});
+            r.push_back({"BIND_" + std::to_string(i), input::binding(i).label, false, i, kPageControls, 0});
+        r.push_back({"RESET_BINDS", "Reset Controls", false, -1, kPageControls, 0});
+        int n[8] = {};
+        n[kPageGraphics] = 1;  // (the first Graphics row is Anti-Aliasing, a widget of its own)
+        for (auto& x : r) x.row = n[x.page]++;
         return r;
     }();
     return rows;
 }
-constexpr int kGamePages = 3, kRowsPerPage = 3;
-int page_count() { return kGamePages + int(port_rows().size() + kRowsPerPage - 1) / kRowsPerPage; }
+int page_count() { return kPageControls; }
+int rows_on_page(int page) {
+    int n = 0;
+    for (auto& r : port_rows()) n += r.page == page;
+    if (page == kPageGraphics) n++;  // Anti-Aliasing
+    return n;
+}
+// height of a category page's content, layout units
+float page_height(int page) { return kRowTop + kRowPitch * float(rows_on_page(page)) + 14.0f; }
+const char* page_title(int page) {
+    static const char* t[] = {"", "General", "Game", "Camera", "Graphics", "Controls"};
+    return page >= 1 && page <= 5 ? t[page] : "";
+}
 std::string key_text_id(int code) { return "PORT_KEY_" + std::to_string(code); }
 
 // Mouse sensitivity slider: 0..1 maps linearly to 10%..300%
@@ -122,13 +146,13 @@ bool patch_layouts(sbin::Database& db) {
         return -1;
     };
     auto entities = [&](size_t layout) { return size_t(get<s32>(db.body(layout) + o_ents)); };
-    auto clone_array = [&](size_t arr, float dx, float dy) -> s32 {
+    auto clone_array = [&](size_t arr, float dx, float dy, float k = 1.0f) -> s32 {
         u32 n = db.array_count(arr), stride = db.array_stride(arr);
         std::vector<u8> d(db.body(arr), db.body(arr) + size_t(n) * stride);
         for (u32 i = 0; i < n; i++) {
             u8* v = &d[i * stride];
-            put<float>(v + o_x, get<float>(v + o_x) + dx);
-            put<float>(v + o_y, get<float>(v + o_y) + dy);
+            put<float>(v + o_x, get<float>(v + o_x) * k + dx);
+            put<float>(v + o_y, get<float>(v + o_y) * k + dy);
         }
         return s32(db.add_array(db.array_elem_type(arr), db.array_struct(arr), n, d));
     };
@@ -143,7 +167,7 @@ bool patch_layouts(sbin::Database& db) {
     // 1. row layouts: copies of a template row with "SENSITIVITY" / "INVERT_Y" in its entity
     //    names replaced, and its label text id swapped
     auto make_row = [&](long tmpl, const std::string& old_key, const std::string& new_key, const std::string& label_id,
-                        const std::string& layout_id) -> s32 {
+                        const std::string& layout_id, float scale = 1.0f) -> s32 {
         size_t ents = entities(size_t(tmpl));
         u32 n = db.array_count(ents);
         std::vector<u8> row(db.body(ents), db.body(ents) + size_t(n) * esize);
@@ -154,7 +178,13 @@ bool patch_layouts(sbin::Database& db) {
             if (auto k = name.find(old_key); k != std::string::npos) name.replace(k, old_key.size(), new_key);
             put<u16>(e + o_name, db.add_string(name));
             s32 v = get<s32>(e + o_verts);
-            if (v >= 0) put<s32>(e + o_verts, clone_array(size_t(v), 0, 0));
+            // A scaled row shrinks toward its origin (the right end of a selector row, the left end of a
+            // slider row): shift it so both kinds stay centred on the same column. The slider itself moves
+            // a little further right, clear of its label (text does not shrink).
+            bool is_slider_row = old_key == "SENSITIVITY";
+            float dx = scale == 1.0f ? 0.0f : (is_slider_row ? 1.0f : -1.0f) * 338.0f * (1.0f - scale) * 0.5f;
+            if (scale != 1.0f && is_slider_row && db.string(get<u16>(e + o_name)) == "BTN_" + new_key) dx += 22.0f;
+            if (v >= 0) put<s32>(e + o_verts, clone_array(size_t(v), dx, 0, scale));
         }
         s32 row_ents = s32(db.add_array(16, u16(s_entity), n, row));
         std::vector<u8> lay(size_t(lsize), 0);
@@ -163,10 +193,10 @@ bool patch_layouts(sbin::Database& db) {
         return s32(db.add_struct_object(u16(s_layout), lay));
     };
     std::vector<s32> new_layouts;
-    new_layouts.push_back(make_row(row9, "INVERT_Y", "ANTI_ALIASING", "OPTIONS_ANTI_ALIASING", "UI_HEADER_OPTIONS10"));
+    new_layouts.push_back(make_row(row9, "INVERT_Y", "ANTI_ALIASING", "OPTIONS_ANTI_ALIASING", "UI_HEADER_OPTIONS10", kRowScale));
     for (auto& r : port_rows())
         new_layouts.push_back(make_row(r.slider ? row8 : row9, r.slider ? "SENSITIVITY" : "INVERT_Y", "PORT_" + r.key,
-                                       "OPTIONS_PORT_" + r.key, "UI_HEADER_PORT_" + r.key));
+                                       "OPTIONS_PORT_" + r.key, "UI_HEADER_PORT_" + r.key, kRowScale));
 
     // 2. register them in the list of all layouts (the object array that contains row 9)
     for (size_t i = 0; i < db.object_count(); i++) {
@@ -210,19 +240,15 @@ bool patch_layouts(sbin::Database& db) {
         // page 3 rows sit at y 19 / 79 / 139 after the shift
         auto add_row = [&](bool is_slider, const std::string& name, const std::string& layout_id, int page, int row) {
             std::vector<u8> e = is_slider ? tmpl_slider : tmpl_toggle;
-            float dx = 480.0f * float(page - 3), dy = 19.0f + 60.0f * float(row) - first_vertex(e.data(), o_y);
+            float pitch = page > kGamePages ? kRowPitch : 60.0f;
+            float dx = 480.0f * float(page - 3), dy = kRowTop + pitch * float(row) - first_vertex(e.data(), o_y);
             put<u16>(&e[size_t(o_name)], db.add_string(name));
             put<u16>(&e[size_t(o_lay)], db.add_string(layout_id));
             put<s32>(&e[size_t(o_verts)], clone_array(size_t(get<s32>(&e[size_t(o_verts)])), dx, dy));
             d.insert(d.end(), e.begin(), e.end());
         };
-        add_row(false, "BTN_ANTI_ALIASING", "UI_HEADER_OPTIONS10", 3, 2);
-        int idx = 0;
-        for (auto& r : port_rows()) {
-            add_row(r.slider, "BTN_PORT_" + r.key, "UI_HEADER_PORT_" + r.key, kGamePages + 1 + idx / kRowsPerPage,
-                    idx % kRowsPerPage);
-            idx++;
-        }
+        add_row(false, "BTN_ANTI_ALIASING", "UI_HEADER_OPTIONS10", kPageGraphics, 0);
+        for (auto& r : port_rows()) add_row(r.slider, "BTN_PORT_" + r.key, "UI_HEADER_PORT_" + r.key, r.page, r.row);
         db.add_array(16, u16(s_entity), u32(d.size() / size_t(esize)), d);
         db.replace_with_last(arr);
         added++;
@@ -393,9 +419,9 @@ void on_panel_init(cpu::Ctx& c) {
             u32 bits;
             std::memcpy(&bits, &v, 4);
             cpu::call(fn_set_pct, {pw.w, bits});
-        } else if (r.key == "BLOOM" || r.key == "SHARPEN" || r.key == "AO") {  // native renderer only
+        } else if (r.key == "BLOOM" || r.key == "SHARPEN" || r.key == "AO" || r.key == "DLIGHTS" || r.key == "SPECULAR" || r.key == "SHADOWS") {  // native renderer only
             set_options(pw.w, {"AA_OFF", "PORT_LOW", "PORT_MEDIUM", "PORT_HIGH"});
-            pw.shown = r.key == "BLOOM" ? render::bloom() : r.key == "AO" ? render::ao() : render::sharpen();
+            pw.shown = r.key == "BLOOM" ? render::bloom() : r.key == "AO" ? render::ao() : r.key == "DLIGHTS" ? render::lights_level() : r.key == "SPECULAR" ? render::specular() : r.key == "SHADOWS" ? render::shadows() : render::sharpen();
             select(pw.w, pw.shown);
         } else if (r.key == "FPS_LIMIT") {
             set_options(pw.w, {"PORT_FPS_60", "PORT_FPS_120", "PORT_FPS_144", "PORT_FPS_240", "PORT_FPS_OFF"});
@@ -403,6 +429,18 @@ void on_panel_init(cpu::Ctx& c) {
             pw.shown = 0;
             for (int i = 0; i < 5; i++)
                 if (kFpsLimits[i] == v) pw.shown = i;
+            select(pw.w, pw.shown);
+        } else if (r.key == "VSYNC") {
+            set_options(pw.w, {"NO", "YES"});
+            pw.shown = settings::get_int("vsync", 1) ? 1 : 0;
+            select(pw.w, pw.shown);
+        } else if (r.key == "VIGNETTE") {
+            set_options(pw.w, {"NO", "YES"});
+            pw.shown = render::vignette() ? 1 : 0;
+            select(pw.w, pw.shown);
+        } else if (r.key == "LIGHT_SHADOWS") {
+            set_options(pw.w, {"NO", "YES"});
+            pw.shown = render::light_shadows() ? 1 : 0;
             select(pw.w, pw.shown);
         } else if (r.key == "SHOW_FPS") {
             set_options(pw.w, {"NO", "YES"});
@@ -474,6 +512,24 @@ void poll_port_rows() {
         } else if (r.key == "SHARPEN") {
             render::set_sharpen(idx);
             settings::set_int("sharpen", render::sharpen());
+        } else if (r.key == "VSYNC") {
+            settings::set_int("vsync", idx ? 1 : 0);
+            SDL_GL_SetSwapInterval(idx ? 1 : 0);
+        } else if (r.key == "VIGNETTE") {
+            render::set_vignette(idx != 0);
+            settings::set_int("vignette", idx ? 1 : 0);
+        } else if (r.key == "LIGHT_SHADOWS") {
+            render::set_light_shadows(idx != 0);
+            settings::set_int("light_shadows", idx ? 1 : 0);
+        } else if (r.key == "SHADOWS") {
+            render::set_shadows(idx);
+            settings::set_int("shadows", render::shadows());
+        } else if (r.key == "SPECULAR") {
+            render::set_specular(idx);
+            settings::set_int("specular", render::specular());
+        } else if (r.key == "DLIGHTS") {
+            render::set_lights(idx);
+            settings::set_int("dynamic_lights", render::lights_level());
         } else if (r.key == "AO") {
             render::set_ao(idx);
             settings::set_int("ambient_occlusion", render::ao());
@@ -516,6 +572,7 @@ struct Range {
     u32 lo, hi;
 };
 Range g_page_math[4];
+bool window_open_soon();
 u32 fn_window_rect = 0, fn_scroll_event = 0, fn_play_sound = 0;
 
 void on_panel_width(cpu::Ctx& c) {
@@ -529,6 +586,26 @@ void on_panel_width(cpu::Ctx& c) {
 // OptionsWindow::onEvent while not already snapping (+0xbc mode 0): the game's logic for any
 // page count. A drag of more than 49 units past the current page snaps to the next/previous.
 u32 g_window = 0, g_window_ticks = 0;  // options window seen recently (its events run every frame)
+int g_cur_page = 1;                    // page the window is on
+u32 g_label_str = 0;                   // the page label's format string (guest wide string, 48 chars)
+
+void set_page_label(int page) {
+    if (!g_label_str) return;
+    std::string label = std::string(page_title(page)) + "  {0}/" + std::to_string(page_count());
+    for (size_t i = 0; i <= label.size() && i < 47; i++) mem::w16(g_label_str + u32(2 * i), i < label.size() ? u16(label[i]) : 0);
+}
+
+// A category page is as tall as its rows, which makes the window scroll it vertically (ScrollingWindow
+// handles both axes; the game's own pages are exactly one window tall). The panel's height (+0x74,
+// what OptionsPanel::getHeight returns) is set for the page the window is on.
+u32 g_height_panel = 0, g_height_orig = 0;
+int g_height_page = 0;
+void set_panel_height(u32 win, int page) {
+    u32 panel = mem::r32(win + 0x7c);
+    if (!panel) return;
+    if (panel != g_height_panel) g_height_panel = panel, g_height_orig = mem::r32(panel + 0x74);
+    mem::w32(panel + 0x74, page > kGamePages ? std::max(g_height_orig, u32(page_height(page))) : g_height_orig);
+}
 
 void on_window_event(cpu::Ctx& c) {
     u32 win = c.reg(0), ev = c.reg(1);
@@ -546,6 +623,15 @@ void on_window_event(cpu::Ctx& c) {
     int scroll = s32(mem::r32(win + 0x9c));
     int p = int(std::ceil(float(scroll) / float(half) - 0.5f));
     int page = p + 1, pages = page_count();
+    if (page != g_cur_page) {  // arrived on another page: start at its top
+        g_cur_page = std::clamp(page, 1, pages);
+        mem::w32(win + 0xa0, 0);
+        set_page_label(g_cur_page);
+    }
+    if (mem::r32(win + 0x7c) != g_height_panel || page != g_height_page) {
+        g_height_page = page;
+        set_panel_height(win, std::clamp(page, 1, pages));
+    }
     u32 res = cpu::call(fn_scroll_event, {win, ev}) & 0xff;
     int moved = p * half - scroll;
     int mode = 0, target = 0;
@@ -564,6 +650,7 @@ void on_window_event(cpu::Ctx& c) {
         std::memcpy(&bits, &now, 4);
         mem::w32(win + 0xc0, bits);
         mem::w32(win + 0xc4, u32(target));
+        mem::w32(win + 0xa0, 0);
         static u32 swipe = guest::wstring("deadspace/ui/swipe");
         cpu::call(fn_play_sound, {swipe});
     }
@@ -592,12 +679,14 @@ bool turn_page(u32 win, int dir) {
     std::memcpy(&bits, &now, 4);
     mem::w32(win + 0xc0, bits);
     mem::w32(win + 0xc4, u32((p + dir) * half));
+    mem::w32(win + 0xa0, 0);
     static u32 swipe = guest::wstring("deadspace/ui/swipe");
     cpu::call(fn_play_sound, {swipe});
     return true;
 }
 
 bool window_open() { return g_window && SDL_GetTicks() - g_window_ticks < 200; }
+bool window_open_soon() { return window_open(); }
 
 // Patches one instruction after checking it is the expected one.
 bool patch_insn(u32 off, u32 expect, u32 insn) {
@@ -632,9 +721,8 @@ void install_paging() {
     if (!patch_insn(0xda584, 0xE3500002, 0xE3500000 | (n - 1)) || !patch_insn(0xe4608, 0xE3530002, 0xE3530000 | n) ||
         !patch_insn(0xe460c, 0x13A03003, 0xC3A03000 | n))
         return;
-    std::string label = "{0}/" + std::to_string(n);
-    u32 str = mem::data_alloc(u32(label.size() * 2 + 2), 4);
-    for (size_t i = 0; i <= label.size(); i++) mem::w16(str + u32(2 * i), i < label.size() ? u16(label[i]) : 0);
+    u32 str = g_label_str = mem::data_alloc(96, 4);
+    set_page_label(1);
     // the string is addressed PC-relatively: literal = string - (add instruction + 8)
     for (auto [lit, add] : {std::pair{0xe4738u, 0xe463cu}, {0xe473cu, 0xe4678u}, {0xe4740u, 0xe4694u}})
         mem::w32(mem::ELF_BASE + lit, str - (mem::ELF_BASE + add + 8));
@@ -704,6 +792,7 @@ void on_load_level(cpu::Ctx& c) {
     std::string id;
     for (u32 p = mem::r32(c.reg(1)), e = mem::r32(c.reg(1) + 4); p && p < e && id.size() < 64; p += 2) id += char(mem::r16(p));
     LOGI("loading level %s", id.c_str());
+    render::scene_changed();
     if (g_level_override.empty() || id == g_level_override) return;
     LOGI("debug: loading %s instead", g_level_override.c_str());
     c.set_reg(1, guest::wstring(g_level_override));
@@ -766,6 +855,20 @@ void set_level_override(const std::string& id) { g_level_override = id; }
 bool options_page(int dir) { return window_open() && turn_page(g_window, dir); }
 bool options_open() { return window_open(); }
 
+// Mouse wheel over the options window: scrolls a category page.
+bool options_wheel(int dy) {
+    if (!window_open() || g_cur_page <= kGamePages || mem::r32(g_window + 0xbc) != 0) return false;
+    static u32 rect = mem::heap_alloc(16);
+    cpu::call(fn_window_rect, {rect, g_window});
+    float wh;
+    u32 bits = mem::r32(rect + 12);
+    std::memcpy(&wh, &bits, 4);
+    int lo = -std::max(0, int(page_height(g_cur_page) - wh));
+    int y = std::clamp(s32(mem::r32(g_window + 0xa0)) + dy * int(kRowPitch), lo, 0);
+    mem::w32(g_window + 0xa0, u32(y));
+    return true;
+}
+
 bool options_click(float x, float y) {
     if (!window_open()) return false;
     // the arrows beside "//Options" in the window header (decoration in the game's layout), in
@@ -802,6 +905,9 @@ std::shared_ptr<const std::vector<u8>> asset(const std::string& path) {
 }
 
 void install() {
+    // GameObjectPlayable::onUpdate shows the navigation line by itself after the player has been idle for
+    // a while (which also tilts the camera down). Skip that: the line only appears when asked for.
+    if (!patch_insn(0x19b9b0, 0xda000014, 0xea000014)) LOGW("idle navigation line: not patched");
     fn_add_toggle = elf::find("_ZN12OptionsPanel15addToggleWidgetEN5eastl12basic_stringIwN2im20StringEASTLAllocatorEEE");
     fn_add_slider = elf::find("_ZN12OptionsPanel15addSliderWidgetEN5eastl12basic_stringIwN2im20StringEASTLAllocatorEEE");
     fn_set_index = elf::find("_ZN8Selector16setSelectedIndexEi");
@@ -832,7 +938,27 @@ void install() {
         LOGW("culling: updateViewCulling not as expected; lost-room fallback disabled");
 }
 
+// Scroll bar at the right edge of the options window on a category page: where the view is in the page.
+void draw_scrollbar() {
+    if (!window_open() || g_cur_page <= kGamePages || mem::r32(g_window + 0xbc) != 0) return;
+    static u32 rect = mem::heap_alloc(16);
+    cpu::call(fn_window_rect, {rect, g_window});
+    float r[4];
+    std::memcpy(r, mem::host(rect), 16);  // x, y, w, h in layout units
+    float content = page_height(g_cur_page);
+    if (content <= r[3] + 1.0f) return;
+    // window layouts sit in a 480-unit frame centred on the (wider) screen
+    float k = std::min(g_config.screen_w / 480.0f, g_config.screen_h / 320.0f), margin = (g_config.screen_w / k - 480.0f) * 0.5f;
+    float scroll = std::clamp(-float(s32(mem::r32(g_window + 0xa0))), 0.0f, content - r[3]);
+    float tx = (margin + 240.0f + 158.0f) * k,  // just inside the window frame's right edge
+           ty = (r[1] + 2.0f) * k, tw = 3.5f * k, th = (r[3] - 4.0f) * k;
+    float thumb = std::max(th * r[3] / content, 10.0f * k), ty2 = ty + (th - thumb) * scroll / (content - r[3]);
+    hle::overlay_rect(tx, ty, tw, th, 0x0c2a3ec0u);        // track
+    hle::overlay_rect(tx, ty2, tw, thumb, 0x8fdcffffu);    // thumb
+}
+
 void frame() {
+    draw_scrollbar();
     if (!g_selector) return;
     if (mem::r32(g_panel) != g_panel_vtable) {  // panel went away without us noticing
         g_panel = g_selector = 0;

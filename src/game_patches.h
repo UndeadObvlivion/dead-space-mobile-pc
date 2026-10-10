@@ -21,6 +21,7 @@ void frame();
 // False if no options window is open or it is already at that end.
 bool options_page(int dir);
 bool options_open();  // an options window is on screen
+bool options_wheel(int dy);  // mouse wheel: scrolls a category page (false if not handled)
 // A tap at game screen pixels: true (consumed) if it hit the page arrows in the options header.
 bool options_click(float x, float y);
 

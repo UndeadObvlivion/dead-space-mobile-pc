@@ -7,6 +7,7 @@
 // positions, short/float texcoords, ubyte colours), one texture unit with MODULATE, no GL
 // lighting, no skinning extension, linear fog, alpha test, scissor, blend, depth, cull.
 #pragma once
+#include <vector>
 #include <SDL_opengl.h>
 
 #include "memory.h"
@@ -63,6 +64,42 @@ void set_bloom(int level);
 void set_sharpen(int level);
 void set_ao(int level);  // ambient occlusion 0-3
 void set_ao_debug(bool on);
+void set_normals_debug(bool on);
+void set_lights(int level);  // dynamic lights 0-3
+int lights_level();
+void set_specular(int level);  // specular highlights from the dynamic lights, 0-3
+int specular();
+void set_shadows(int level);  // shadows of moving objects, 0-3
+int shadows();
+void set_shadow_debug(bool on);
+void set_vignette(bool on);  // darkened picture edges (3D scene only)
+bool vignette();
+void set_light_shadows(bool on);
+// Dev: how the level's painted vertex lighting is drawn: 0 normal, 1 hidden, 2 alone (no textures).
+void set_vertex_color_debug(int mode);
+int vertex_color_debug();
+void set_glow_gain(float v);  // dev: brightness of panel glow lights
+void set_lshade(float v);  // dev: darkness of the shadows the level's fixtures cast, 0-1
+void set_fanshade(float v);  // dev: darkness of fan blade shadows on characters, 0-1
+void set_tile_debug(int tile);  // dev: show light N's shadow map result (1-8), 0 = off  // dynamic lights cast shadows
+bool light_shadows();
+void scene_changed();  // a level is loading: forget which meshes move
+struct Light {
+    float pos[3];  // eye space
+    float radius;
+    float color[3];
+    float dir[3] = {0, 0, 0};  // spotlights: unit direction (eye space)
+    float cos_outer = 0;       // spotlights: cosine of the cone's half angle (0 = point light)
+    float wpos[3] = {0, 0, 0}, wdir[3] = {0, -1, 0};  // world space (lights that get a shadow map)
+    int tile = -1;             // its tile in the shadow atlas, or -1
+    int glow = 0;              // 1: light of a glowing panel (door hologram, screen) found while drawing
+    float gobo = 0, phase = 0; // gobo 1: a ceiling fan's light, shadowed by three blades at heading `phase`
+    // gobo 2: shadowed by the game's own floor shadow texture: gm maps a world x,z offset from the fan's axis
+    // at floor level to a texture offset from guv; gh = height of the light above that floor
+    float gm[4] = {0, 0, 0, 0}, guv[2] = {0.5f, 0.5f}, gh = 1;
+};
+// Dev: the lights fixed at the start of the last frame (alarm spotlights, lit strip lights), world space.
+const std::vector<Light>& debug_frame_lights();  // dev: show the reconstructed surface normals
 void set_ao_tuning(float gain, float radius);  // dev: occlusion gain, radius override (0 = default)
 int ao();
 int bloom();

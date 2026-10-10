@@ -41,6 +41,9 @@
 #include "elf_loader.h"
 #include "guest_util.h"
 #include "input.h"
+#include "lights.h"
+#include "debugview.h"
+#include "settings.h"
 #include "menu_nav.h"
 #include "render/native.h"
 #include "interact.h"
@@ -192,6 +195,67 @@ void run(const std::string& line) {
         render::set_ao(std::stoi(arg(1, "1")));
         render::set_ao_debug(arg(2, "") == "debug");
         if (a.size() > 3) render::set_ao_tuning(std::stof(arg(3)), std::stof(arg(4, "0")));
+    } else if (c == "lighttrace") {  // lighttrace 1|0: log light source events
+        lights::set_trace(arg(1, "1") == "1");
+    } else if (c == "health") {  // health N: set the player's health
+        float v = std::stof(arg(1, "100"));
+        game_job([v](u32 pl) {
+            u32 bits;
+            std::memcpy(&bits, &v, 4);
+            cpu::call(elf::find("_ZN18GameObjectPlayable9setHealthEfa"), {pl, bits, 0});
+            out("health set");
+        });
+    } else if (c == "shadows") {  // shadows 0-3 [debug]: shadows of moving objects; "debug" tints them red and logs caster counts
+        render::set_shadows(std::stoi(arg(1, "2")));
+        render::set_shadow_debug(arg(2, "") == "debug");
+    } else if (c == "lightshadows") {  // lightshadows 1|0: dynamic lights cast shadows
+        render::set_light_shadows(arg(1, "1") != "0");
+        render::set_tile_debug(std::stoi(arg(2, "0")));  // lightshadows 1 N: show light N's shadow map result
+    } else if (c == "tint") {  // tint RRGGBB [AMOUNT]: GameWorld::setTintOverride (the alarm-light tint), e.g. tint ff2020 1
+        u32 col = u32(std::stoul(arg(1, "ff2020"), nullptr, 16));
+        float amt = std::stof(arg(2, "1"));
+        game_job([col, amt](u32) {
+            u32 bits;
+            std::memcpy(&bits, &amt, 4);
+            cpu::call(elf::find("_ZN9GameWorld15setTintOverrideEif"), {input::world(), col, bits});
+            out("tint set");
+        });
+    } else if (c == "gltrace") {  // gltrace 1|0: log every GL call (use: gltrace 1; wait 1; gltrace 0)
+        bool on = arg(1, "1") == "1";
+        cpu::set_gl_trace(on);
+        if (on) render::trace_next_frame();
+    } else if (c == "shownodes") {  // shownodes X Z [RADIUS]: un-hide animated level nodes there (e.g. alarm beacons)
+        float x = std::stof(arg(1)), z = std::stof(arg(2)), r = std::stof(arg(3, "1"));
+        game_job([=](u32) { out("shown " + std::to_string(lights::debug_show_nodes(x, z, r))); });
+    } else if (c == "fpslimit") {  // fpslimit N: frame rate limit (0 = unlimited)
+        settings::set_int("fps_limit", std::stoi(arg(1, "60")));
+    } else if (c == "vertexlight") {  // vertexlight 0|1|2: painted vertex lighting normal / hidden / alone
+        render::set_vertex_color_debug(std::stoi(arg(1, "1")));
+    } else if (c == "glowgain") {  // glowgain N: brightness of door / screen glow lights (0 = off)
+        render::set_glow_gain(std::stof(arg(1, "1.3")));
+    } else if (c == "vignette") {  // vignette 1|0
+        render::set_vignette(arg(1, "1") != "0");
+    } else if (c == "lightshade") {  // lightshade 0-1: darkness of the shadows fixtures cast
+        render::set_lshade(std::stof(arg(1, "0.65")));
+    } else if (c == "fanshade") {  // fanshade 0-1: darkness of fan blade shadows on characters
+        render::set_fanshade(std::stof(arg(1, "0.7")));
+    } else if (c == "specular") {  // specular 0-3
+        render::set_specular(std::stoi(arg(1, "2")));
+    } else if (c == "dlights") {  // dlights 0-3: dynamic light level
+        render::set_lights(std::stoi(arg(1, "2")));
+    } else if (c == "light") {  // light [R G B [RADIUS [MS [FWD UP SIDE]]]]: test light near the player
+        float r = std::stof(arg(1, "1")), g = std::stof(arg(2, "1")), b = std::stof(arg(3, "1"));
+        float rad = std::stof(arg(4, "4")), ms = std::stof(arg(5, "3000")), fwd = std::stof(arg(6, "0")), up = std::stof(arg(7, "0")), side = std::stof(arg(8, "0"));
+        game_job([=](u32 pl) {
+            objs::Vec3 p = objs::pos(pl), f = objs::facing(pl);
+            objs::Vec3 q{p.x + f.x * fwd - f.z * side, p.y + up, p.z + f.z * fwd + f.x * side};
+            lights::add(q.x, q.y, q.z, r, g, b, rad, ms);
+            float sx = 0, sy = 0;
+            bool vis = objs::to_screen(input::world(), q, sx, sy);
+            out("light at " + std::to_string(q.x) + " " + std::to_string(q.y) + " " + std::to_string(q.z) + (vis ? " screen " + std::to_string(int(sx)) + "," + std::to_string(int(sy)) : " (behind camera)"));
+        });
+    } else if (c == "normals") {  // normals 1|0: show the reconstructed surface normals (native renderer)
+        render::set_normals_debug(arg(1, "1") == "1");
     } else if (c == "sharpen") {  // sharpen 0-3
         render::set_sharpen(std::stoi(arg(1, "1")));
     } else if (c == "revz") {  // revz 1|0: reversed-Z depth on the native renderer
@@ -384,8 +448,12 @@ void run(const std::string& line) {
             objs::Vec3 q = objs::pos(obj);
             out(fmt("spawned %s %08x (type %d) at %.1f %.1f %.1f", objs::class_name(obj).c_str(), obj, type, q.x, q.y, q.z));
         });
-    } else if (c == "debugview") {
-        input::set_interact_debug(arg(1, "1") == "1");
+    } else if (c == "debugview") {  // debugview 1|0 [lights|hitboxes|interact]
+        std::string which = arg(2, "interact");
+        bool on = arg(1, "1") == "1";
+        if (which == "lights") debugview::set_lights(on);
+        else if (which == "hitboxes") debugview::set_hitboxes(on);
+        else input::set_interact_debug(on);
     } else if (c == "look") {  // what E would pick (no action)
         game_job([](u32 pl) { out(interact::preview(pl, input::world(), input::free_look_yaw())); });
     } else if (c == "goto") {

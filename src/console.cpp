@@ -11,6 +11,8 @@
 // While typing a /command, matching commands are suggested above the input line; Tab completes
 // the first one.
 #include "console.h"
+#include "debugview.h"
+#include "render/native.h"
 
 #include <algorithm>
 #include <atomic>
@@ -102,6 +104,11 @@ const Command kCommands[] = {
     {"/bandana", "", "toggle infinite ammo"},
     {"/level_", "MAP", "load a level, e.g. /level_01_gov_02"},
     {"/kill", "", "kill the player"},
+    {"/debug_lights", "", "toggle the light placement view (F6)"},
+    {"/debug_hitboxes", "", "toggle the hitbox view (F7)"},
+    {"/debug_interact", "", "toggle the interaction box view (F10)"},
+    {"/debug_vertexlight", "", "cycle the level's painted vertex lighting: normal / hidden / alone (F5)"},
+    {"/debug_off", "", "turn all debug views off"},
     {"/help", "", "list commands"},
     {"/clear", "", "clear the console"},
 };
@@ -224,6 +231,30 @@ void run(const std::string& raw) {
     if (line == "/kill") {
         if (!input::world()) return fail("no level loaded");
         return kill_player();
+    }
+    if (line == "/debug_lights") {
+        debugview::set_lights(!debugview::lights());
+        return print(debugview::lights() ? "light view on: crosses = lights, rings = radius, dim = not lit now" : "light view off");
+    }
+    if (line == "/debug_hitboxes") {
+        debugview::set_hitboxes(!debugview::hitboxes());
+        return print(debugview::hitboxes() ? "hitbox view on: green player, red enemies, pink limbs, yellow other" : "hitbox view off");
+    }
+    if (line == "/debug_interact") {
+        input::set_interact_debug(!input::interact_debug());
+        return print(input::interact_debug() ? "interaction view on: cyan = your reach, white = usable, green = what E picks" : "interaction view off");
+    }
+    if (line == "/debug_vertexlight") {
+        render::set_vertex_color_debug((render::vertex_color_debug() + 1) % 3);
+        static const char* names[3] = {"vertex lighting: normal", "vertex lighting: hidden (textures and added lights only)", "vertex lighting: alone (no textures)"};
+        return print(names[render::vertex_color_debug()]);
+    }
+    if (line == "/debug_off") {
+        render::set_vertex_color_debug(0);
+        debugview::set_lights(false);
+        debugview::set_hitboxes(false);
+        input::set_interact_debug(false);
+        return print("debug views off");
     }
     if (line == "/god") {
         g_god = !g_god;

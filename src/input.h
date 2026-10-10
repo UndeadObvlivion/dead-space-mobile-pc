@@ -24,9 +24,14 @@ bool event(const SDL_Event& e, SDL_Window* win);
 
 // Runs fn on the game thread during the player's next update (fn gets the player object).
 void run_on_game_thread(std::function<void(unsigned player)> fn);
-unsigned world();  // current GameWorld (0 before gameplay)
+unsigned world();
+unsigned player();  // the live player object, or 0
+// Eye, target and up of the gameplay camera (physics/render space); false when it has not been
+// computed in the last 100 ms (cinematics, menus).
+bool camera(float eye[3], float target[3], float up[3]);  // current GameWorld (0 before gameplay)
 float free_look_yaw();  // camera orbit relative to the player (game thread)
 void set_interact_debug(bool on);  // F10 view
+bool interact_debug();
 // Treats every key and mouse button as released (e.g. while a console takes the keyboard).
 void release_all();
 // True while gameplay controls are active (mouse captured; not in a menu).

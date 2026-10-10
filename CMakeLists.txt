@@ -31,6 +31,8 @@ add_executable(deadspace
     src/devmode.cpp
     src/objects.cpp
     src/interact.cpp
+    src/lights.cpp
+    src/debugview.cpp
     src/console.cpp
     src/menu_nav.cpp
     src/render/native.cpp

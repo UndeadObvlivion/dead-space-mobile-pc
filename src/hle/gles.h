@@ -9,6 +9,7 @@ void gles_init_host();
 // Framebuffer the guest's "FBO 0" maps to (0 = the window).
 extern GLuint g_default_fbo;
 extern GLenum g_depth_fmt;
+extern bool g_normal_target;
 
 // Offscreen render target the game draws into, scaled to the window when presenting.
 void present_init(int w, int h, int msaa_samples);

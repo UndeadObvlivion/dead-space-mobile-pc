@@ -576,6 +576,7 @@ bool g_real_atc = false;  // decode ATC-labelled textures as real ATC (pristine 
 // its own render target, which guest binds of FBO 0 are redirected to.
 GLuint g_default_fbo = 0;
 GLenum g_depth_fmt = 0x8CAD;  // GL_DEPTH32F_STENCIL8 (fallback: GL_DEPTH24_STENCIL8)
+bool g_normal_target = false;  // the game framebuffer has COLOR_ATTACHMENT1 (surface normals, native renderer)
 
 // ---------------------------------------------------------------- presentation
 // The game draws into g_default_fbo ("FBO 0" from its point of view). With MSAA that framebuffer
@@ -585,6 +586,7 @@ namespace {
 PFNGLBLITFRAMEBUFFERPROC p_glBlitFramebuffer;
 PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC p_glRenderbufferStorageMultisample;
 GLuint g_present_tex = 0, g_present_depth = 0;  // single-sample target (no MSAA)
+GLuint g_normal_rb = 0;                         // surface normals (same sample count as the color target)
 GLuint g_msaa_color = 0, g_msaa_depth = 0;      // multisampled target
 GLuint g_resolve_fbo = 0;
 int g_rw = 0, g_rh = 0;
@@ -662,6 +664,15 @@ void set_msaa(int samples) {
         p_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_present_tex, 0);
         p_glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, g_present_depth);
     }
+    // second color attachment for surface normals; only written by native draws that select it
+    if (!g_normal_rb) p_glGenRenderbuffers(1, &g_normal_rb);
+    p_glBindRenderbuffer(GL_RENDERBUFFER, g_normal_rb);
+    if (samples) p_glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, 0x8059 /*RGB10_A2*/, g_rw, g_rh);
+    else p_glRenderbufferStorage(GL_RENDERBUFFER, 0x8059, g_rw, g_rh);
+    p_glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    p_glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + 1, GL_RENDERBUFFER, g_normal_rb);
+    g_normal_target = p_glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (!g_normal_target) p_glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + 1, GL_RENDERBUFFER, 0);
     GLenum st = p_glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (st != GL_FRAMEBUFFER_COMPLETE && g_depth_fmt != GL_DEPTH24_STENCIL8) {
         LOGW("float depth buffer not accepted (0x%x); using 24-bit depth", st);

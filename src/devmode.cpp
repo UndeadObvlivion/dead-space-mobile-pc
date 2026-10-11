@@ -41,6 +41,7 @@
 #include "cpu.h"
 #include "elf_loader.h"
 #include "guest_util.h"
+#include "game_patches.h"
 #include "input.h"
 #include "lights.h"
 #include "debugview.h"
@@ -62,6 +63,14 @@ bool g_active = false;
 std::mutex g_out_lock;
 std::deque<std::string> g_cmds;
 int g_wait = 0;
+std::string g_waitfor, g_waitfor_name;  // "waitfor" in progress
+int g_waitfor_left = 0, g_waitfor_frames = 0;
+int g_turbo = 0;
+struct Burst {
+    std::string name;
+    int count = 0, step = 1, countdown = 0, div = 8, w = 0, h = 0;
+    std::vector<std::vector<unsigned char>> frames;
+} g_burst;
 std::atomic<int> g_job_pending{0};
 int g_job_frames = 0;
 struct Release {
@@ -108,7 +117,7 @@ const float kPi = 3.14159265f;
 
 void game_job(std::function<void(u32)> fn) {
     g_job_pending = 1;
-    g_job_frames = 0;
+    g_job_frames = int(SDL_GetTicks());
     input::run_on_game_thread([fn](unsigned player) {
         try {
             fn(player);
@@ -167,6 +176,58 @@ void run(const std::string& line) {
     auto arg = [&](size_t i, const char* def = "") { return i < a.size() ? a[i] : std::string(def); };
     if (c == "wait") {
         g_wait = std::stoi(arg(1, "1"));
+    } else if (c == "waitfor") {  // waitfor play|menu|loading|notloading|button NAME [MAXMS]: waits until the game is in that state (default 60 s)
+        g_waitfor = arg(1);
+        g_waitfor_name = g_waitfor == "button" ? arg(2) : "";
+        g_waitfor_left = std::stoi(arg(g_waitfor == "button" ? 3 : 2, "60000"));
+        g_waitfor_frames = int(SDL_GetTicks());
+    } else if (c == "tapbtn") {  // tapbtn NAME: taps the middle of that menu button
+        for (auto& b : menu_nav::usable_buttons())
+            if (b.name == arg(1)) {
+                g_host.tap(b.x + b.w * 0.5f, b.y + b.h * 0.5f, 4);
+                return out("tapped " + b.name);
+            }
+        out("tapbtn: no usable button " + arg(1));
+    } else if (c == "turbo") {  // turbo N: N extra game frames per displayed frame, unlimited frame rate (0 = normal)
+        g_turbo = std::clamp(std::stoi(arg(1, "0")), 0, 32);
+    } else if (c == "shaders") {  // shaders [PATH]: recompile the post shaders from native.cpp on disk (no rebuild)
+        std::string sp = arg(1, "");
+        render::reload_shaders(sp.empty() ? g_dir + "/../src/render/native.cpp" : sp, [](const std::string& r) { out(r); });
+        g_wait = 2;  // (done in the next frame's post pass)
+    } else if (c == "stat") {  // stat [X0 Y0 X1 Y1]: colour statistics of a screen region (fractions of the screen, default all)
+        float x0 = std::stof(arg(1, "0")), y0 = std::stof(arg(2, "0")), x1 = std::stof(arg(3, "1")), y1 = std::stof(arg(4, "1"));
+        int w, h;
+        std::vector<unsigned char> px = g_host.grab(4, w, h);
+        double sum[3] = {0, 0, 0}, sat = 0;
+        long n = 0, clipped = 0, dark = 0;
+        for (int y = int(y0 * h); y < std::min(h, int(y1 * h)); y++)
+            for (int x = int(x0 * w); x < std::min(w, int(x1 * w)); x++) {
+                const unsigned char* p = &px[(size_t(y) * w + x) * 3];
+                int mx = std::max(p[0], std::max(p[1], p[2])), mn = std::min(p[0], std::min(p[1], p[2]));
+                for (int k = 0; k < 3; k++) sum[k] += p[k];
+                sat += mx ? double(mx - mn) / mx : 0.0;
+                clipped += mx >= 250, dark += mx < 10, n++;
+            }
+        if (!n) return out("stat: empty region");
+        out(fmt("stat %.2f %.2f %.2f %.2f: mean rgb %.0f %.0f %.0f, luma %.1f, saturation %.2f, clipped %.1f%%, near black %.1f%%", x0, y0, x1, y1,
+                sum[0] / n, sum[1] / n, sum[2] / n, (0.299 * sum[0] + 0.587 * sum[1] + 0.114 * sum[2]) / n, sat / n, 100.0 * clipped / n,
+                100.0 * dark / n));
+    } else if (c == "burst") {  // burst NAME [N] [STEP] [DIV]: N frames, STEP frames apart, as one filmstrip PNG (left to right, top to bottom)
+        g_burst = {arg(1, "burst"), std::clamp(std::stoi(arg(2, "8")), 1, 32), std::max(1, std::stoi(arg(3, "4"))), 0,
+                   std::clamp(std::stoi(arg(4, "8")), 1, 16), 0, 0, {}};
+    } else if (c == "report") {  // report: the state of the game and the renderer as text
+        std::string menu;
+        auto v = menu_nav::usable_buttons();
+        for (auto& b : v) menu += (menu.empty() ? "" : " ") + b.name;
+        out(fmt("state: %s%s%s; highlighted: %s; usable buttons (%zu): %s", input::controls_active() ? "gameplay" : "menu / dialog",
+                patches::loading_wait() ? " (loading screen waiting)" : "", patches::options_open() ? " (options open)" : "",
+                menu_nav::focused().empty() ? "none" : menu_nav::focused().c_str(), v.size(), menu.c_str()));
+        out(render::report());
+        if (input::controls_active())
+            game_job([](u32 pl) {
+                objs::Vec3 p = objs::pos(pl), f = objs::facing(pl);
+                out(fmt("player %.2f %.2f %.2f yaw %.1f health %.0f", p.x, p.y, p.z, objs::yaw_of(f) * 180 / kPi, objs::rf(pl + 0x25c)));
+            });
     } else if (c == "key" || c == "lmb" || c == "rmb" || c == "mmb") {
         bool mb = c != "key";
         std::string name = mb ? c : arg(1);
@@ -198,6 +259,8 @@ void run(const std::string& line) {
         if (a.size() > 3) render::set_ao_tuning(std::stof(arg(3)), std::stof(arg(4, "0")));
     } else if (c == "lighttrace") {  // lighttrace 1|0: log light source events
         lights::set_trace(arg(1, "1") == "1");
+    } else if (c == "perf") {  // perf 1|0: log slow frames and where the renderer spent its CPU time
+        render::set_perf_log(arg(1, "1") == "1");
     } else if (c == "fogveil") {  // fogveil 1|0: keep the added lighting off the fog banks (default 1)
         out(fmt("fog veil %s, %d fog draws", arg(1, "1").c_str(), render::set_fog_veil(std::stoi(arg(1, "1")))));
     } else if (c == "rich") {  // rich [CREDITS] [NODES]: fill the wallet (Inventory at player+0x530: nodes +0x14, credits +0x18)
@@ -514,7 +577,8 @@ void run(const std::string& line) {
         std::string cls = arg(1);
         int idx = std::stoi(arg(2, "0"));
         float dist = std::stof(arg(3, "1.5")), ang = std::stof(arg(4, "0")) * kPi / 180;
-        game_job([cls, idx, dist, ang](u32 pl) {
+        const bool away = arg(5, "") == "away";  // look away from the object (down the corridor a door opens into)
+        game_job([cls, idx, dist, ang, away](u32 pl) {
             int k = 0;
             for (u32 o : objs::world_objects(input::world())) {
                 if (objs::class_name(o).find(cls) == std::string::npos || k++ != idx) continue;
@@ -526,8 +590,8 @@ void run(const std::string& line) {
                 // keep the player's height relative to the floor under the object (box bottom)
                 float y = b.lo.y < b.hi.y ? b.lo.y + 1.0f : p.y;
                 objs::teleport(pl, {q.x + d.x * dist, y, q.z + d.z * dist});
-                face_point(pl, q);
                 p = objs::pos(pl);
+                face_point(pl, away ? objs::Vec3{2 * p.x - q.x, q.y, 2 * p.z - q.z} : q);
                 out(fmt("at %s #%d (%08x): object %.2f %.2f %.2f, player %.2f %.2f %.2f", objs::class_name(o).c_str(), idx,
                         o, q.x, q.y, q.z, p.x, p.y, p.z));
                 return;
@@ -574,6 +638,7 @@ void init(const std::string& dir, Host host) {
 }
 
 bool active() { return g_active; }
+int turbo() { return g_active ? g_turbo : 0; }
 
 void out(const std::string& line) {
     std::lock_guard lk(g_out_lock);
@@ -593,7 +658,8 @@ void frame() {
     }
     read_commands();
     if (g_job_pending) {
-        if (++g_job_frames < 600) return;
+        // (by the clock: frames can be very slow while a level loads, or very fast in turbo)
+        if (int(SDL_GetTicks()) - g_job_frames < 5000) return;
         out("error: game thread did not run the command (no player?)");
         g_job_pending = 0;
     }
@@ -601,7 +667,42 @@ void frame() {
         g_wait--;
         return;
     }
-    while (!g_cmds.empty() && g_wait == 0) {
+    if (g_burst.count > 0) {  // a filmstrip being recorded
+        if (g_burst.countdown-- > 0) return;
+        g_burst.countdown = g_burst.step - 1;
+        std::vector<unsigned char> px = g_host.grab(g_burst.div, g_burst.w, g_burst.h);
+        g_burst.frames.push_back(std::move(px));
+        if (int(g_burst.frames.size()) < g_burst.count) return;
+        const int n = g_burst.count, cols = std::min(n, 4), rows = (n + cols - 1) / cols, w = g_burst.w, h = g_burst.h, gap = 4;
+        const int W = cols * w + (cols - 1) * gap, H = rows * h + (rows - 1) * gap;
+        std::vector<unsigned char> sheet(size_t(W) * H * 3, 40);
+        for (int i = 0; i < n; i++)
+            for (int y = 0; y < h; y++)
+                std::memcpy(&sheet[(size_t((i / cols) * (h + gap) + y) * W + size_t((i % cols) * (w + gap))) * 3], &g_burst.frames[size_t(i)][size_t(y) * w * 3], size_t(w) * 3);
+        const std::string path = g_dir + "/" + g_burst.name + ".png";
+        g_host.write_png(path, W, H, sheet);
+        out(fmt("burst %s: %d frames every %d, %d per row", path.c_str(), n, g_burst.step, cols));
+        g_burst = {};
+        return;
+    }
+    if (!g_waitfor.empty()) {
+        bool ok = false;
+        if (g_waitfor == "play") ok = input::controls_active();
+        else if (g_waitfor == "loading") ok = patches::loading_wait();
+        else if (g_waitfor == "notloading") ok = !patches::loading_wait();
+        else if (g_waitfor == "menu") ok = !menu_nav::usable_buttons().empty();
+        else if (g_waitfor == "button") {
+            for (auto& b : menu_nav::usable_buttons()) ok |= b.name == g_waitfor_name;
+        } else {
+            out("waitfor: unknown state " + g_waitfor);
+            ok = true;
+        }
+        const int ms = int(SDL_GetTicks()) - g_waitfor_frames;
+        if (!ok && ms < g_waitfor_left) return;
+        out(fmt("waitfor %s %s: %s after %d ms", g_waitfor.c_str(), g_waitfor_name.c_str(), ok ? "ok" : "TIMEOUT", ms));
+        g_waitfor.clear();
+    }
+    while (!g_cmds.empty() && g_wait == 0 && g_waitfor.empty() && g_burst.count == 0) {
         std::string c = g_cmds.front();
         g_cmds.pop_front();
         try {

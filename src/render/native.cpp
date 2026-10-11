@@ -14,6 +14,7 @@
 #include "hle/gles.h"
 #include "log.h"
 #include "lights.h"
+#include "texpack.h"
 
 namespace render {
 
@@ -253,6 +254,10 @@ uniform vec4 u_fog_color;
 uniform vec2 u_fog_range; // start, end (linear) / density in x (exp)
 uniform vec2 u_alpha;     // test mode (0 off, 1 GEQUAL, 2 GREATER, 3 LESS, 4 LEQUAL, 5 EQUAL, 6 NOTEQUAL), ref
 uniform int u_gbuf;        // 1: also write the eye-space surface normal (second color target)
+uniform int u_revz;
+uniform int u_veilmode;    // coverage written for a see-through draw: 0 its alpha, 1 its alpha where it floats in front of the scene
+uniform sampler2D u_scened;  // depth of the solid scene (copied before the first see-through draw)
+uniform vec4 u_veilz;      // projection terms A, B (clip z = A*z + B), 1 / viewport size
 in vec4 v_color;
 in vec4 v_tex0;
 in float v_eyez;
@@ -288,7 +293,17 @@ void main() {
         c.rgb = mix(u_fog_color.rgb, c.rgb, f);
     }
     frag = c;
-    o_veil = vec4(1.0, 1.0, 1.0, c.a);
+    float cover = c.a;
+    if (u_veilmode == 1) {
+        // A decal or a hologram lies on (or just off) a surface and is lit with it; a light shaft, a flare
+        // or steam hangs in the air in front of it and is not. Distance from this fragment to the solid
+        // scene behind it, along the view:
+        float d = texture(u_scened, gl_FragCoord.xy * u_veilz.zw).r;
+        float nz = u_revz != 0 ? 1.0 - 2.0 * d : 2.0 * d - 1.0;
+        float behind = u_veilz.y / (nz + u_veilz.x);
+        cover *= smoothstep(0.08, 0.4, behind - v_eyez);
+    }
+    o_veil = vec4(1.0, 1.0, 1.0, cover);
     o_nrm = vec4(0.0);
     if (u_gbuf != 0) {
         // The game supplies no normals. The exact face normal comes from screen-space derivatives of the
@@ -305,6 +320,7 @@ void main() {
             n = normalize(mix(fl, sm, smoothstep(0.70, 0.88, dot(sm, fl))));
         }
         o_nrm = vec4(n * 0.5 + 0.5, u_gbuf == 2 ? 0.667 : 1.0);  // alpha: 1 = level and props, 2/3 = things that move
+        o_veil = vec4(0.0, 0.0, 0.0, 1.0);  // (a solid surface: no see-through cover here)
     }
 }
 )";
@@ -332,7 +348,11 @@ int g_vc_debug = 0;        // dev: 1 = level drawn without its vertex colours, 2
 bool g_gbuf_draw = false;  // this draw also writes surface normals
 bool g_veil_draw = false;  // this draw is fog: it also writes its coverage
 int g_veil_draws = 0;      // fog draws this frame
+int g_veil_draws_prev = 0, g_tile_draws_prev = 0;  // last frame's (dev report)
 bool g_veil_on = true;     // dev: fog is kept out of the lighting
+int g_veil_mode = 0;        // this draw's coverage: 0 plain alpha (fog banks), 1 where it floats in front of the scene
+bool g_veil_depth = false;  // the solid scene's depth has been copied for this frame
+float g_veilz[4] = {0, 0, 0, 0};  // projection terms and 1 / viewport size for the shader's depth comparison
 float g_tint_now[3] = {1, 1, 1}, g_tint_color[3] = {1, 1, 1};  // the world tint: being drawn / of the last frame (white = none)
 struct TintVote { float c[3]; float weight; };  // one light-model colour seen this frame and how much geometry used it
 TintVote g_tint_votes[6];
@@ -380,8 +400,29 @@ struct Tile {
     u32 seen_ms = 0;
     bool fixture = false;  // a lamp of the level: it faces the open space around it (open_direction)
     u32 open_ms = 0;
+    bool baked = false;    // (kept maps) the still scene has been drawn into it at least once
+    u32 born_ms = 0;       // (kept maps) when it was first drawn: its shadows fade in from then
 };
 Tile g_tiles[kTiles];
+// Kept ("baked") maps: every fixed light of the level owns one for as long as it is remembered, holding
+// the depth of the still scene as that light sees it. It is drawn when the light is first met and again
+// only when the still scene around it changes, so a lamp's shadows are the same whatever the camera does
+// and however many lamps are in view. The live tiles above then hold nothing but what moves.
+constexpr int kBakes = 128, kBakeSize = 512, kBakeCols = 16, kBakeRows = 8;  // atlas of 16 x 8 maps
+constexpr int kBakeBudget = 6;                                               // maps drawn per frame at most
+Tile g_bakes[kBakes];
+GLuint g_bmat_tex = 0;  // per kept map: eye space -> its clip space (4 texels), then (strength, -, -, -)
+int g_bakes_present = 0, g_bakes_pending = 0, g_bakes_drawn = 0;  // last frame (dev report)
+// dev: where the renderer's own CPU time goes in a frame (ms): lamp search, lamp facing, map drawing, uploads
+double g_ms_scan = 0, g_ms_open = 0, g_ms_bake = 0, g_ms_upload = 0, g_ms_cache = 0;
+int g_n_scan = 0, g_n_open = 0;
+bool g_perf_log = false;
+struct StopWatch {
+    double& acc;
+    Uint64 t0 = SDL_GetPerformanceCounter();
+    explicit StopWatch(double& a) : acc(a) {}
+    ~StopWatch() { acc += double(SDL_GetPerformanceCounter() - t0) * 1000.0 / double(SDL_GetPerformanceFrequency()); }
+};
 // The still scene, in world space: every mesh that has not moved for a while is copied here once, the
 // first time it is drawn. The shadow maps draw it from here, so a light's shadows do not depend on what
 // the camera is looking at (only on what has been seen so far), and they do not change from frame to frame.
@@ -681,6 +722,16 @@ void upload_and_draw(GLenum mode, const std::vector<u16>& idx) {
     p_glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(idx.size() * 2), idx.data(), GL_STREAM_DRAW);
     static const GLenum kBoth[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT0 + 1};
     static const GLenum kVeil[3] = {GL_COLOR_ATTACHMENT0, GL_NONE, GL_COLOR_ATTACHMENT0 + 2};
+    static GLint u_veilmode = -2, u_scened = -1, u_veilz = -1;
+    if (u_veilmode == -2) {
+        u_veilmode = p_glGetUniformLocation(g_prog, "u_veilmode");
+        u_scened = p_glGetUniformLocation(g_prog, "u_scened");
+        u_veilz = p_glGetUniformLocation(g_prog, "u_veilz");
+        p_glUniform1i(u_scened, 3);
+    }
+    const int veil_mode = g_veil_draw && g_veil_depth ? g_veil_mode : 0;
+    p_glUniform1i(u_veilmode, veil_mode);
+    if (veil_mode == 1) p_glUniform4fv(u_veilz, 1, g_veilz);
     if (g_gbuf_draw) p_glDrawBuffers(2, kBoth);
     else if (g_veil_draw) p_glDrawBuffers(3, kVeil);
     glDrawElements(mode, GLsizei(idx.size()), GL_UNSIGNED_SHORT, nullptr);
@@ -726,6 +777,7 @@ struct Target {
 Target g_scene, g_ba[3], g_bb[3];  // scene copy; bloom levels (and their blur scratch)
 Target g_aoa, g_aob;                // ambient occlusion (and its blur scratch)
 Target g_veil;                      // fog coverage of the scene (resolved copy)
+Target g_av[4];                     // the scene reduced step by step to one pixel: its average colour
 Target g_nrm;                       // surface normals of the scene (resolved copy)
 constexpr int kShadowSize = 2048;
 constexpr float kShadowHalf = 8.0f, kShadowTop = 3.5f, kShadowBottom = 3.5f;  // metres around the camera target
@@ -866,6 +918,9 @@ uniform vec4 u_gobo_rect;   // the tile of the texture it occupies (u0, v0, u1, 
 uniform float u_lgain;
 uniform sampler2D u_atlas;  // shadow maps of the fixed lights, 4 x 2 tiles
 uniform mat4 u_tm[24];      // eye space -> a tile's clip space
+uniform sampler2D u_batlas;  // the kept maps: still scene as each fixed light sees it
+uniform sampler2D u_bmat;    // per kept map: eye space -> clip space, strength
+uniform sampler2D u_avg;     // one pixel: the average colour of the scene as the game lit it
 uniform int u_tdebug;       // dev: show what light (tile u_tdebug - 1) can see, white = lit
 uniform sampler2D u_shmap;  // depth of moving objects seen from the shadow light
 uniform mat4 u_shmat;       // eye space -> shadow map clip space
@@ -903,6 +958,39 @@ float tile_light(int t, vec3 p, vec3 n, vec3 ldn) {
     float edge = smoothstep(0.98, 0.75, max(abs(s.x), abs(s.y)));
     return mix(1.0, lit * 0.125, edge);
 }
+// The same for a fixed light: its kept map `b` of the still scene and, if it has one, its live tile `t`
+// of the things that move (both drawn with one view).
+float bake_light(int b, int t, vec3 p, vec3 n, vec3 ldn) {
+    mat4 m = mat4(texelFetch(u_bmat, ivec2(0, b), 0), texelFetch(u_bmat, ivec2(1, b), 0), texelFetch(u_bmat, ivec2(2, b), 0), texelFetch(u_bmat, ivec2(3, b), 0));
+    float strength = texelFetch(u_bmat, ivec2(4, b), 0).r;
+    if (strength <= 0.0) return 1.0;
+    vec4 q = m * vec4(p + n * 0.06 + ldn * 0.07, 1.0);
+    if (q.w <= 0.0) return 1.0;
+    vec3 s = q.xyz / q.w;
+    if (abs(s.x) > 0.98 || abs(s.y) > 0.98 || s.z > 1.0) return 1.0;
+    float z = s.z * 0.5 + 0.5 - 0.0006, lit = 0.0;
+    vec2 org = vec2(float(b - (b / 16) * 16), float(b / 16));
+    vec2 tuv = (org + s.xy * 0.5 + 0.5) * vec2(1.0 / 16.0, 1.0 / 8.0);
+    vec2 px = vec2(0.7 / 8192.0, 0.7 / 4096.0);
+    for (int k = 0; k < 6; k++) {
+        float a = float(k) * 1.0471976 + 0.3, r = (k - (k / 2) * 2) == 0 ? 1.6 : 0.8;
+        lit += step(z, texture(u_batlas, tuv + px * vec2(cos(a), sin(a)) * r).r);
+    }
+    lit /= 6.0;
+    if (t >= 0) {
+        vec2 torg = vec2(float(t - (t / 4) * 4), float(t / 4));
+        vec2 uv2 = (torg + s.xy * 0.5 + 0.5) * vec2(0.25, 1.0 / 6.0);
+        vec2 px2 = vec2(0.7 / 4096.0, 0.7 / 6144.0);
+        float dyn = 0.0;
+        for (int k = 0; k < 4; k++) {
+            float a = float(k) * 1.5707963 + 0.3;
+            dyn += step(z, texture(u_atlas, uv2 + px2 * vec2(cos(a), sin(a)) * 1.8).r);
+        }
+        lit = min(lit, dyn * 0.25);
+    }
+    float edge = smoothstep(0.98, 0.75, max(abs(s.x), abs(s.y)));
+    return mix(1.0, lit, edge * strength);
+}
 void main() {
     vec3 c = texture(u_scene, uv).rgb;
     if (u_sharp > 0.0) {
@@ -916,14 +1004,11 @@ void main() {
     // How bright the world tint leaves the scene (1 = no tint or a pure colour; less under the dark tints
     // of the hallucinations). "Bright pixel" tests below are made on the scene as it would be untinted.
     float tl = clamp(max(u_tint.r, max(u_tint.g, u_tint.b)), 0.02, 1.0);
-    if (u_env < 1.0) {
-        // Environment light. The game's lighting is painted on and cannot react to anything, so it is
-        // turned down to a base level everywhere (level, props, characters), and the lights added below
-        // bring their surroundings back up. What blocks a light then leaves a clearly darker shadow.
-        // Lamp faces and other bright pixels stay as they are.
-        float l0 = max(c.r, max(c.g, c.b));
-        if (texture(u_nrm, uv).a > 0.5) c *= mix(u_env, 1.0, smoothstep(0.6, 0.95, l0 / tl));
-    }
+    // How bright the game itself lit this view (0 = a dark corridor, 1 = a white, fully lit room). The added
+    // lamps are the lamps the game painted its lighting from: in a room it already lit brightly there is
+    // little for them to add and little to turn down first, and doing either anyway lifts every dark tone
+    // and greys every white one (a washed-out picture). Shadows and occlusion are not affected.
+    float bright = smoothstep(0.18, 0.34, dot(texelFetch(u_avg, ivec2(0, 0), 0).rgb, vec3(0.299, 0.587, 0.114)) / tl);
     if (u_shs > 0.0) {
         // Shadows of moving objects (characters, props, doors) from an assumed light above: the level's
         // own shadows are baked into its textures, so only surfaces facing up receive these.
@@ -962,6 +1047,7 @@ void main() {
             vec3 n = normalize(gn.xyz * 2.0 - 1.0), sum = vec3(0.0), spec = vec3(0.0), spot = vec3(0.0);
             float fanshade = 0.0;
             float shw = 0.0, shb = 0.0;  // weight of the fixed point lights reaching this pixel; the blocked part of it
+            float reach = 0.0;           // how much added lamp light there is around this pixel at all (unshadowed)
             vec3 fandbg = vec3(0.0, 0.0, 1.0);  // how deep in a fan blade's shadow this pixel is (things above the floor)
             vec3 v = normalize(-p);
             for (int i = 0; i < u_nl; i++) {
@@ -1004,18 +1090,21 @@ void main() {
                         }
                     }
                 }
+                if (u_ldir[i].w <= 0.0) reach += att * att;
                 float ndl = clamp((dot(n, l) * inversesqrt(d2 + 1e-6) + 0.25) / 1.25, 0.0, 1.0);
                 if (att <= 0.0 || ndl <= 0.0) continue;
-                int tile = int(u_lcol[i].w) - 1;
-                if (tile >= 0) {
-                    float tl = tile_light(tile, p, n, l * inversesqrt(d2 + 1e-6));
+                float code = u_lcol[i].w;
+                int bk = code > 0.5 ? int(mod(code, 256.0) + 0.5) - 1 : -1, tile = code > 0.5 ? int(code / 256.0) - 1 : -1;
+                if (bk >= 0 || tile >= 0) {
+                    vec3 ldn = l * inversesqrt(d2 + 1e-6);
+                    float tl = bk >= 0 ? bake_light(bk, tile, p, n, ldn) : tile_light(tile, p, n, ldn);
                     if (u_ldir[i].w <= 0.0) {
                         float w = att * att * ndl;
                         shw += w;
                         shb += w * (1.0 - tl);
                     }
                     att *= mix(0.12, 1.0, tl);
-                } else if (u_lsh != 0) {
+                } else if (code > -0.5 && u_lsh != 0) {
                     // march from the surface toward the light; something in the depth buffer in front of
                     // the ray (and not much thicker than a limb) blocks it
                     float dist = sqrt(d2), len = min(dist * 0.9, 1.2);
@@ -1056,7 +1145,20 @@ void main() {
             // that reach it. This is what gives characters and props a shadow on the far side of each
             // nearby light, darker the more that light dominates there.
             // (characters are not lit by the painted light in the first place: they darken less)
-            c *= 1.0 - u_lshade * (gn.a < 0.85 ? 0.4 : 1.0) * clamp(shb / (shw + 0.03), 0.0, 1.0);
+            // (a lamp's own face, and anything else the game drew bright, is not darkened: the light sits on
+            // the lamp's surface, which would otherwise count as shadowed by the wall it is set in)
+            float lampface = smoothstep(0.6, 0.95, max(c0.r, max(c0.g, c0.b)) / tl);
+            // Environment light. The game's lighting is painted on and cannot react to anything, so around the
+            // added lamps it is turned down to a base level (level, props, characters) and the lamps bring
+            // their surroundings back up: what blocks one then leaves a clearly darker shadow. Where no
+            // added lamp reaches, nothing would bring it back, so the painted lighting is left as it is.
+            // (only as far as the added light can bring a pixel back: a bright surface has almost no headroom
+            // left for it, so it is hardly turned down; otherwise white rooms go grey)
+            float dimroom = pow(clamp((1.0 - max(c0.r, max(c0.g, c0.b)) / tl) * 1.6, 0.0, 1.0), 1.5);
+            if (u_env < 1.0) c *= 1.0 - (1.0 - u_env) * mix(1.0 - lampface, 0.15 * dimroom, bright) * smoothstep(0.0, 0.35, reach);
+            // (lamps that barely reach a pixel cannot throw a strong shadow on it: at least a quarter of a
+            // full lamp's weight is assumed, so a blocked, faint, far lamp darkens little)
+            c *= 1.0 - u_lshade * (gn.a < 0.85 ? 0.4 : 1.0) * clamp(shb / max(shw, 0.25), 0.0, 1.0) * (1.0 - lampface);
             c *= 1.0 - u_fanshade * fanshade;
             // (lights work on the surface as the game lit it, so a lit spot comes back to full brightness)
             // Added light can only fill the headroom a pixel has left: a surface the game already lit to
@@ -1065,7 +1167,14 @@ void main() {
             // Under a world tint the added point lights take the tint too, so they deepen the colour instead
             // of washing it out; the headroom is one number for all channels, for the same reason.
             // (spotlights keep their colour but dim with a dark tint: a blacked-out room stays black)
-            vec3 add = (sum * u_tint.rgb * (c0 * (1.2 + 2.2 * (1.0 - u_env)) + 0.03) + spot * tl * (luma * 1.6 + 0.07 * tl)) * u_lgain + spec * u_tint.rgb * gloss * u_spec;
+            // (All of this in step with how bright the room already is: a dark corridor is lit as before.)
+            // Many lamps reach the same spot (a room can have a hundred): their sum is compressed, so that
+            // a place lit by ten lamps is not ten times as bright as one lit by a single lamp. And the light
+            // works on the surface's own colour: a black surface stays black (only a trace is added to it),
+            // otherwise every dark area of a well-lit room is lifted to grey.
+            vec3 lit = sum * u_tint.rgb;
+            lit /= 1.0 + 0.6 * bright * max(lit.r, max(lit.g, lit.b));
+            vec3 add = (lit * (c0 * mix(1.2 + 2.2 * (1.0 - u_env), 0.4, bright) + mix(0.03, 0.004, bright)) + spot * tl * (luma * 1.6 + mix(0.07, 0.02, bright) * tl)) * u_lgain + spec * u_tint.rgb * gloss * u_spec;
             vec3 room = vec3(clamp(1.0 - max(c0.r, max(c0.g, c0.b)) / tl, 0.0, 1.0));
             c += min(add, vec3(0.45 * tl)) * room * room;  // (and no single pixel gains more than this)
             c = min(c, max(c0, vec3(0.92 * tl)));  // and never past what the game itself shows as bright
@@ -1090,7 +1199,8 @@ void main() {
     if (u_vignette > 0.0) {
         // soft darkening toward the edges and corners (the HUD is drawn afterwards and stays clear)
         vec2 q = (uv - 0.5) * vec2(1.0, 0.85);
-        c *= 1.0 - u_vignette * smoothstep(0.28, 0.75, length(q) * 1.25);
+        // (lighter in a bright room: there it would turn the white walls at the sides grey)
+        c *= 1.0 - u_vignette * mix(1.0, 0.3, bright) * smoothstep(0.28, 0.75, length(q) * 1.25);
     }
     if (u_nrmdebug != 0) c = texture(u_nrm, uv).rgb * texture(u_nrm, uv).a;
     frag = vec4(clamp(c, 0.0, 1.0), 1.0);
@@ -1158,6 +1268,7 @@ bool post_init() {
     ok &= make_target(g_aob, w, h);
     ok &= make_target(g_nrm, w, h, 0x8059 /*RGB10_A2*/);
     ok &= make_target(g_veil, w, h);
+    ok &= make_target(g_av[0], w / 8, h / 8) && make_target(g_av[1], w / 64, h / 64) && make_target(g_av[2], 4, 4) && make_target(g_av[3], 1, 1);
     // shadow map: depth only
     glGenTextures(1, &g_shmap);
     glBindTexture(GL_TEXTURE_2D, g_shmap);
@@ -1188,7 +1299,12 @@ bool post_init() {
     // a second atlas keeps each map's depth of the still scene; a depth-only program draws that scene
     glGenTextures(1, &g_satlas);
     glBindTexture(GL_TEXTURE_2D, g_satlas);
-    glTexImage2D(GL_TEXTURE_2D, 0, 0x81A6 /*DEPTH_COMPONENT24*/, kTileSize * 4, kTileSize * 6, 0, 0x1902 /*DEPTH_COMPONENT*/, GL_UNSIGNED_INT, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, 0x81A6 /*DEPTH_COMPONENT24*/, kBakeSize * kBakeCols, kBakeSize * kBakeRows, 0, 0x1902 /*DEPTH_COMPONENT*/, GL_UNSIGNED_INT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glGenTextures(1, &g_bmat_tex);
+    glBindTexture(GL_TEXTURE_2D, g_bmat_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, 0x8814 /*RGBA32F*/, 5, kBakes, 0, GL_RGBA, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     p_glGenFramebuffers(1, &g_satlas_fbo);
@@ -1285,7 +1401,75 @@ bool invert(const Mat4& a, Mat4& out) {
 }
 
 // Applies the effects to what has been drawn into the game framebuffer so far.
+// ---------------------------------------------------------------- dev: shader reload
+std::string g_reload_path;
+void (*g_reload_done)(const std::string&) = nullptr;
+void do_reload_shaders() {
+    std::string path;
+    path.swap(g_reload_path);
+    std::string src, result;
+    if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+        char buf[65536];
+        for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) src.append(buf, n);
+        std::fclose(f);
+    }
+    if (src.empty()) {
+        if (g_reload_done) g_reload_done("shaders: cannot read " + path);
+        return;
+    }
+    const struct {
+        const char* name;
+        GLuint* prog;
+    } kProgs[] = {{"kBrightFS", &g_p_bright}, {"kDownFS", &g_p_down}, {"kBlurFS", &g_p_blur},
+                  {"kAoFS", &g_p_ao},         {"kAoBlurFS", &g_p_aoblur}, {"kFinalFS", &g_p_final}};
+    auto literal = [&](const std::string& name) {
+        size_t a = src.find("const char* " + name + " = R\"(");
+        if (a == std::string::npos) return std::string();
+        a = src.find("R\"(", a) + 3;
+        size_t b = src.find(")\";", a);
+        return b == std::string::npos ? std::string() : src.substr(a, b - a);
+    };
+    const std::string vs_src = literal("kPostVS");
+    int ok_count = 0;
+    for (auto& p : kProgs) {
+        const std::string fs_src = literal(p.name);
+        if (fs_src.empty() || vs_src.empty()) {
+            result += std::string(" ") + p.name + ": not found;";
+            continue;
+        }
+        const char* vp = vs_src.c_str();
+        const char* fp = fs_src.c_str();
+        GLuint vs = p_glCreateShader(GL_VERTEX_SHADER), fs = p_glCreateShader(GL_FRAGMENT_SHADER);
+        p_glShaderSource(vs, 1, &vp, nullptr);
+        p_glCompileShader(vs);
+        p_glShaderSource(fs, 1, &fp, nullptr);
+        p_glCompileShader(fs);
+        GLint ok = 0;
+        p_glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            char log[1500];
+            p_glGetShaderInfoLog(fs, sizeof log, nullptr, log);
+            result += std::string("\n  ") + p.name + " DID NOT COMPILE (old one kept): " + log;
+            continue;
+        }
+        GLuint prog = p_glCreateProgram();
+        p_glAttachShader(prog, vs);
+        p_glAttachShader(prog, fs);
+        p_glBindAttribLocation(prog, 0, "a_p");
+        p_glLinkProgram(prog);
+        p_glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            result += std::string("\n  ") + p.name + " DID NOT LINK (old one kept)";
+            continue;
+        }
+        *p.prog = prog;  // (the old program is left to the driver: a handful per session)
+        ok_count++;
+    }
+    if (g_reload_done) g_reload_done("shaders: " + std::to_string(ok_count) + " of 6 post shaders reloaded" + result);
+}
+
 void run_post() {
+    if (!g_reload_path.empty()) do_reload_shaders();
     g_post_done = true;
     GLint fb = 0;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb);
@@ -1331,6 +1515,20 @@ void run_post() {
                 p_glBlitFramebuffer(0, 0, g_veil.w, g_veil.h, 0, 0, g_veil.w, g_veil.h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             }
             glReadBuffer(GL_COLOR_ATTACHMENT0);
+        }
+        {  // the scene's average colour (how bright the game itself lit this view)
+            GLint rfb = 0, dfb = 0;
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &rfb);
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &dfb);
+            const Target* from = &g_scene;
+            for (Target& to : g_av) {
+                p_glBindFramebuffer(GL_READ_FRAMEBUFFER, from->fbo);
+                p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, to.fbo);
+                p_glBlitFramebuffer(0, 0, from->w, from->h, 0, 0, to.w, to.h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                from = &to;
+            }
+            p_glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(rfb));
+            p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(dfb));
         }
         p_glBindVertexArray(g_post_vao);
         static const float kAoStrength[4] = {0.0f, 0.55f, 0.8f, 1.0f}, kAoRadius[4] = {0.0f, 0.35f, 0.45f, 0.55f};
@@ -1378,10 +1576,10 @@ void run_post() {
         p_glBindFramebuffer(GL_FRAMEBUFFER, hle::g_default_fbo);
         glViewport(0, 0, g_scene.w, g_scene.h);
         p_glUseProgram(g_p_final);
-        const char* names[11] = {"u_scene", "u_b1", "u_b2", "u_b3", "u_ao", "u_nrm", "u_depth", "u_shmap", "u_atlas", "u_gobo", "u_veil"};
-        const GLuint texs[11] = {g_scene.tex, g_ba[0].tex, g_ba[1].tex, g_ba[2].tex, g_aoa.tex, g_nrm.tex, g_scene_depth, g_shmap, g_atlas, g_gobo_tex, g_veil.tex};
+        const char* names[14] = {"u_scene", "u_b1", "u_b2", "u_b3", "u_ao", "u_nrm", "u_depth", "u_shmap", "u_atlas", "u_gobo", "u_veil", "u_batlas", "u_bmat", "u_avg"};
+        const GLuint texs[14] = {g_scene.tex, g_ba[0].tex, g_ba[1].tex, g_ba[2].tex, g_aoa.tex, g_nrm.tex, g_scene_depth, g_shmap, g_atlas, g_gobo_tex, g_veil.tex, g_satlas, g_bmat_tex, g_av[3].tex};
         p_glUniform1i(p_glGetUniformLocation(g_p_final, "u_veilon"), have_nrm && hle::g_veil_target && g_veil_draws > 0 && g_veil_on ? 1 : 0);
-        for (int u = 0; u < 11; u++) {
+        for (int u = 0; u < 14; u++) {
             p_glActiveTexture(GL_TEXTURE0 + u);
             glBindTexture(GL_TEXTURE_2D, texs[u]);
             p_glUniform1i(p_glGetUniformLocation(g_p_final, names[u]), u);
@@ -1401,7 +1599,8 @@ void run_post() {
                 lx[i * 4] = l.gobo, lx[i * 4 + 1] = l.gobo > 1.5f ? l.gh : l.phase, lx[i * 4 + 2] = l.guv[0], lx[i * 4 + 3] = l.guv[1];
                 for (int k = 0; k < 4; k++) lg[i * 4 + k] = l.gm[k];
                 ld[i * 4] = l.dir[0], ld[i * 4 + 1] = l.dir[1], ld[i * 4 + 2] = l.dir[2], ld[i * 4 + 3] = l.cos_outer;
-                lc[i * 4] = l.color[0], lc[i * 4 + 1] = l.color[1], lc[i * 4 + 2] = l.color[2], lc[i * 4 + 3] = float(l.tile + 1);
+                lc[i * 4] = l.color[0], lc[i * 4 + 1] = l.color[1], lc[i * 4 + 2] = l.color[2], lc[i * 4 + 3] = l.bake >= 0 || l.tile >= 0 ? float(l.bake + 1) + 256.0f * float(l.tile + 1)  // kept map, live tile
+                                : l.id && g_light_shadows ? -1.0f : 0.0f;  // a fixed light without a map casts no shadow; 0: a passing light
             }
             p_glUniform1i(p_glGetUniformLocation(g_p_final, "u_nl"), nl);
             {  // this frame's world tint (the world has been drawn by now)
@@ -1895,6 +2094,21 @@ struct TexImage {
     std::vector<u8> px;  // RGBA, at most 256 x 256
 };
 std::unordered_map<GLuint, TexImage> g_tex_images;
+std::unordered_map<GLuint, std::array<u8, 256>> g_lamp_masks;  // per texture: where it is lamp-bright (16 x 16)
+
+// The game's own upload of a texture (decoded RGBA): the small copy is taken here, so that nothing has to
+// be read back from the graphics card later (a read-back stalls the frame it happens in).
+void texture_pixels_impl(GLuint tex, const u8* rgba, int w, int h) {
+    if (!tex || w < 1 || h < 1 || w > 4096 || h > 4096) return;
+    TexImage ti;
+    const int sx = std::max(1, w / 256), sy = std::max(1, h / 256);
+    ti.w = w / sx, ti.h = h / sy;
+    ti.px.resize(size_t(ti.w) * size_t(ti.h) * 4);
+    for (int y = 0; y < ti.h; y++)
+        for (int x = 0; x < ti.w; x++) std::memcpy(&ti.px[(size_t(y) * size_t(ti.w) + size_t(x)) * 4], &rgba[(size_t(y * sy) * size_t(w) + size_t(x * sx)) * 4], 4);
+    g_tex_images[tex] = std::move(ti);
+    g_lamp_masks.erase(tex);
+}
 
 const TexImage& tex_image(GLuint tex) {
     auto it = g_tex_images.find(tex);
@@ -2326,18 +2540,21 @@ void beacon_lights() {
 }
 
 // ---- light fixtures found in the level's own geometry
-// Lamps (wall, floor and ceiling strips) are small, bright, nearly white patches of the level's texture.
-// Every still, opaque level mesh is examined once: triangles that are small and bright all over are
-// gathered into fixtures (their centres, clustered), which then get a point light like the strip lights
-// known from the lockdown meshes. This covers rooms that have no lockdown lighting.
+// Lamps (wall, floor and ceiling strips, the lights over and beside doors) are small, bright, nearly white
+// patches of the level's texture. Some are modelled as their own triangles, most are painted inside a
+// larger wall panel, so every still, opaque level mesh is examined once by sampling its texture over its
+// surface (a point every few centimetres): bright samples are gathered into fixtures by position, and a
+// fixture of a believable size gets a point light like the strip lights known from the lockdown meshes.
 struct Lamp {
     float p[3], c[3];
-    int n;
+    float n;         // weight of the sums above = bright area, in square metres
     float nrm[3];
-    u64 base;  // the mesh it was found in
+    u64 base;        // the mesh it was found in
 };
 std::vector<Lamp> g_lamps;                // of this level, world space
 std::unordered_map<u64, char> g_lamp_done;  // meshes examined (by vertex data and place)
+const float kLampMinArea = 0.006f;  // smaller: a highlight or a texture speck
+const float kLampMaxArea = 0.9f;    // larger: a white panel, a lit wall, a window
 
 void lamps_drop(u64 base) {
     g_lamps.erase(std::remove_if(g_lamps.begin(), g_lamps.end(), [&](const Lamp& l) { return l.base == base; }), g_lamps.end());
@@ -2349,83 +2566,132 @@ void lamp_scan(u32 lo, u32 n) {
     const Array& a = g_arr[A_VERTEX];
     u64 key = (u64(reinterpret_cast<uintptr_t>(a.data)) * 0x9E3779B97F4A7C15ull) ^ (u64(lo) << 32) ^ n;
     key ^= u64(int(world.m[12] * 4.0f)) * 0x85EBCA77ull ^ u64(int(world.m[13] * 4.0f)) * 0xC2B2AE3Dull ^ u64(int(world.m[14] * 4.0f)) * 0x27D4EB2Full;
-    const u64 mesh_key = (u64(reinterpret_cast<uintptr_t>(a.data)) * 0x9E3779B97F4A7C15ull) ^ (u64(lo) << 32) ^ n;
+    const u64 mesh_key = key;
     // part of the level's structure (a room, a wall section), not an object lying in it
     if (std::max(g_mesh_hi[0] - g_mesh_lo[0], std::max(g_mesh_hi[1] - g_mesh_lo[1], g_mesh_hi[2] - g_mesh_lo[2])) < 2.5f) return;
     if (g_lamp_done.count(key)) return;
+    // (a few milliseconds of this per frame at most: a mesh that has to wait is examined on a later frame,
+    // when it is drawn again; entering a room would otherwise stall on all its meshes at once)
+    if (g_ms_scan > 2.5) return;
+    StopWatch sw(g_ms_scan);
     g_lamp_done[key] = 1;
     const TexImage& ti = tex_image(g_st.unit[0].tex);
     if (ti.w <= 0) return;
+    // Where the texture has lamp-bright texels at all, on a 16 x 16 grid: most triangles map to parts of
+    // it that have none and are skipped without sampling.
+    auto& masks = g_lamp_masks;
+    auto mi = masks.find(g_st.unit[0].tex);
+    if (mi == masks.end()) {
+        std::array<u8, 256> mk{};
+        bool any = false;
+        for (int y = 0; y < ti.h; y++)
+            for (int x = 0; x < ti.w; x++) {
+                const u8* q = &ti.px[(size_t(y) * size_t(ti.w) + size_t(x)) * 4];
+                if (std::max(q[0], std::max(q[1], q[2])) > 204 && std::min(q[0], std::min(q[1], q[2])) > 114) mk[size_t((y * 16 / ti.h) * 16 + x * 16 / ti.w)] = 1, any = true;
+            }
+        mk[0] = u8(mk[0] | (any ? 2 : 0));  // (bit 1 of the first cell: the texture has bright texels somewhere)
+        mi = masks.emplace(g_st.unit[0].tex, mk).first;
+        if (masks.size() > 4000) masks.clear(), mi = masks.emplace(g_st.unit[0].tex, mk).first;
+    }
+    const std::array<u8, 256>& mask = mi->second;
+    if (!(mask[0] & 2)) return;  // nothing lamp-bright anywhere in this texture
     const float* tm = g_tex[0].top().m;
-    bool vc = g_arr[A_COLOR].enabled;
-    auto texel = [&](float u, float v, float out[3]) {
-        u -= std::floor(u), v -= std::floor(v);
-        const u8* q = &ti.px[(size_t(std::min(ti.h - 1, int(v * float(ti.h)))) * size_t(ti.w) + size_t(std::min(ti.w - 1, int(u * float(ti.w))))) * 4];
-        for (int k = 0; k < 3; k++) out[k] = float(q[k]) / 255.0f;
-    };
-    int found = 0, stat_centre = 0;
-    (void)vc;
+    const bool vc = g_arr[A_COLOR].enabled;
+    std::vector<Lamp> found;  // this mesh's bright patches
+    double mesh_area = 0, bright_area = 0;
     for (size_t t = 0; t + 2 < g_idx.size(); t += 3) {
         u32 id[3] = {g_idx[t], g_idx[t + 1], g_idx[t + 2]};
         if (id[0] >= n || id[1] >= n || id[2] >= n) continue;
-        float w[3][3], uv[3][2], vcol[3] = {0, 0, 0};
+        float w[3][3], uv[3][2], vcol[3][3];
         for (int k = 0; k < 3; k++) {
             const float* v = &g_verts[size_t(id[k]) * kStride];
             for (int r = 0; r < 3; r++) w[k][r] = world.m[r] * v[0] + world.m[4 + r] * v[1] + world.m[8 + r] * v[2] + world.m[12 + r];
             uv[k][0] = tm[0] * v[8] + tm[4] * v[9] + tm[12], uv[k][1] = tm[1] * v[8] + tm[5] * v[9] + tm[13];
-            for (int r = 0; r < 3; r++) vcol[r] += (vc ? v[4 + r] : g_st.color[r]) / 3.0f;
+            for (int r = 0; r < 3; r++) vcol[k][r] = vc ? v[4 + r] : g_st.color[r];
         }
         float e1[3], e2[3];
         for (int r = 0; r < 3; r++) e1[r] = w[1][r] - w[0][r], e2[r] = w[2][r] - w[0][r];
         float cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
-        float area = 0.5f * std::sqrt(cx * cx + cy * cy + cz * cz);
-        if (area < 0.004f || area > 2.5f) continue;
-        // bright and nearly white at the corners (pulled in a little), the edge midpoints and the centre
-        float sum[3] = {0, 0, 0};
-        bool all = true;
-        const float cu = (uv[0][0] + uv[1][0] + uv[2][0]) / 3.0f, cv = (uv[0][1] + uv[1][1] + uv[2][1]) / 3.0f;
-        int bright = 0;
-        for (int k = 6; k >= 0; k--) {
-            float u, v;
-            if (k < 3) u = uv[k][0] * 0.8f + cu * 0.2f, v = uv[k][1] * 0.8f + cv * 0.2f;
-            else if (k < 6) u = (uv[k - 3][0] + uv[(k - 2) % 3][0]) * 0.45f + cu * 0.1f, v = (uv[k - 3][1] + uv[(k - 2) % 3][1]) * 0.45f + cv * 0.1f;
-            else u = cu, v = cv;
-            float c[3];
-            texel(u, v, c);
-            for (int r = 0; r < 3; r++) sum[r] += c[r] / 7.0f;
-            if (k == 6) stat_centre += std::max(c[0], std::max(c[1], c[2])) > 0.8f && std::min(c[0], std::min(c[1], c[2])) > 0.45f;
-            float mx = std::max(c[0], std::max(c[1], c[2])), mn = std::min(c[0], std::min(c[1], c[2]));
-            bright += mx > 0.8f && mn > 0.45f;  // bright; white or warm, not a saturated sign colour
-            (void)all;
+        const float nl = std::sqrt(cx * cx + cy * cy + cz * cz), area = 0.5f * nl;
+        if (area < 0.0004f || area > 40.0f) continue;
+        mesh_area += area;
+        {  // does the triangle's part of the texture hold anything bright?
+            float u0 = std::min(uv[0][0], std::min(uv[1][0], uv[2][0])), u1 = std::max(uv[0][0], std::max(uv[1][0], uv[2][0]));
+            float v0 = std::min(uv[0][1], std::min(uv[1][1], uv[2][1])), v1 = std::max(uv[0][1], std::max(uv[1][1], uv[2][1]));
+            bool hit = u1 - u0 >= 1.0f || v1 - v0 >= 1.0f;
+            const int cx0 = int(std::floor(u0 * 16.0f)), cx1 = int(std::floor(u1 * 16.0f)), cy0 = int(std::floor(v0 * 16.0f)), cy1 = int(std::floor(v1 * 16.0f));
+            for (int cy = cy0; cy <= cy1 && !hit; cy++)
+                for (int cx = cx0; cx <= cx1 && !hit; cx++) hit = (mask[size_t(((cy % 16) + 16) % 16 * 16 + ((cx % 16) + 16) % 16)] & 1) != 0;
+            if (!hit) continue;
         }
-        if (bright < 5) continue;  // most of the triangle is lamp
-        float ctr[3];
-        for (int r = 0; r < 3; r++) ctr[r] = (w[0][r] + w[1][r] + w[2][r]) / 3.0f;
+        // a grid of points over the triangle, about 8 cm apart (coarser on very large triangles)
+        const float l1 = std::sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]), l2 = std::sqrt(e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2]);
+        const int div = std::clamp(int(std::ceil(std::max(l1, l2) / 0.08f)), 1, 40);
+        const float cell = area / float(div * div);  // area of one grid cell (two samples per cell, less along the edge)
+        for (int i = 0; i < div; i++)
+            for (int j = 0; j < div - i; j++)
+                for (int half = 0; half < 2; half++) {
+                    if (half && j >= div - i - 1) continue;  // the upper triangle of the last cell is outside
+                    const float b1 = (float(i) + (half ? 2.0f : 1.0f) / 3.0f) / float(div), b2 = (float(j) + (half ? 2.0f : 1.0f) / 3.0f) / float(div);
+                    const float b0 = 1.0f - b1 - b2;
+                    float u = b0 * uv[0][0] + b1 * uv[1][0] + b2 * uv[2][0], v = b0 * uv[0][1] + b1 * uv[1][1] + b2 * uv[2][1];
+                    u -= std::floor(u), v -= std::floor(v);
+                    const u8* q = &ti.px[(size_t(std::min(ti.h - 1, int(v * float(ti.h)))) * size_t(ti.w) + size_t(std::min(ti.w - 1, int(u * float(ti.w))))) * 4];
+                    const float c[3] = {float(q[0]) / 255.0f, float(q[1]) / 255.0f, float(q[2]) / 255.0f};
+                    const float mx = std::max(c[0], std::max(c[1], c[2])), mn = std::min(c[0], std::min(c[1], c[2]));
+                    if (mx <= 0.8f || mn <= 0.45f) continue;  // bright; white or warm, not a saturated sign colour
+                    // (and lit by the level's own painted lighting: a lamp that is out is dark there)
+                    float vl = 0;
+                    for (int r = 0; r < 3; r++) vl = std::max(vl, b0 * vcol[0][r] + b1 * vcol[1][r] + b2 * vcol[2][r]);
+                    if (vl < 0.5f) continue;
+                    const float wa = cell * 0.5f;
+                    float pos[3];
+                    for (int r = 0; r < 3; r++) pos[r] = b0 * w[0][r] + b1 * w[1][r] + b2 * w[2][r];
+                    bright_area += wa;
+                    Lamp* hit = nullptr;
+                    for (Lamp& l : found) {
+                        float dx = l.p[0] / l.n - pos[0], dy = l.p[1] / l.n - pos[1], dz = l.p[2] / l.n - pos[2];
+                        if (dx * dx + dy * dy + dz * dz < 0.7f * 0.7f) {
+                            hit = &l;
+                            break;
+                        }
+                    }
+                    if (!hit) {
+                        found.push_back({{0, 0, 0}, {0, 0, 0}, 0, {cx / nl, cy / nl, cz / nl}, mesh_key});
+                        hit = &found.back();
+                    }
+                    for (int r = 0; r < 3; r++) hit->p[r] += pos[r] * wa, hit->c[r] += c[r] * wa;
+                    hit->n += wa;
+                }
+    }
+    // A mesh where much of the surface is bright is a white wall or floor, not a row of lamps.
+    if (bright_area > 0.2 * mesh_area) {
+        if (g_shadow_debug) LOGI("lamps: mesh of %u vertices is a bright surface (%.1f of %.1f m2): no lamps taken from it", n, bright_area, mesh_area);
+        return;
+    }
+    int taken = 0;
+    for (const Lamp& f : found) {
+        if (f.n < kLampMinArea || f.n > kLampMaxArea) continue;
+        // (one fixture can span two meshes: joined with what is already known there)
         Lamp* hit = nullptr;
         for (Lamp& l : g_lamps) {
-            float dx = l.p[0] / float(l.n) - ctr[0], dy = l.p[1] / float(l.n) - ctr[1], dz = l.p[2] / float(l.n) - ctr[2];
-            if (dx * dx + dy * dy + dz * dz < 0.9f * 0.9f) {
+            float dx = l.p[0] / l.n - f.p[0] / f.n, dy = l.p[1] / l.n - f.p[1] / f.n, dz = l.p[2] / l.n - f.p[2] / f.n;
+            if (dx * dx + dy * dy + dz * dz < 0.7f * 0.7f) {
                 hit = &l;
                 break;
             }
         }
-        if (!hit) {
-            float nl = std::sqrt(cx * cx + cy * cy + cz * cz);
-            g_lamps.push_back({{0, 0, 0}, {0, 0, 0}, 0, {cx / nl, cy / nl, cz / nl}, mesh_key});
-            hit = &g_lamps.back();
+        if (hit) {
+            for (int r = 0; r < 3; r++) hit->p[r] += f.p[r], hit->c[r] += f.c[r];
+            hit->n += f.n;
+        } else {
+            g_lamps.push_back(f);
         }
-        for (int r = 0; r < 3; r++) hit->p[r] += ctr[r], hit->c[r] += sum[r];
-        hit->n++;
-        found++;
+        taken++;
     }
-    if (g_shadow_debug) LOGI("lamp scan: mesh of %u vertices, texture %u (%dx%d copy): %d triangles bright at the centre", n, g_st.unit[0].tex, ti.w, ti.h, stat_centre);
-    // A mesh where much of the surface is bright is a white wall or floor, not a row of lamps.
-    if (found > 40 || found * 5 > int(g_idx.size() / 3)) {
-        lamps_drop(mesh_key);
-        if (g_shadow_debug) LOGI("lamps: mesh of %u vertices is a bright surface (%d of %zu triangles): no lamps taken from it", n, found, g_idx.size() / 3);
-        return;
-    }
-    if (found && g_shadow_debug) LOGI("lamps: %d bright triangles in a mesh of %u vertices (texture %u); %zu fixtures so far", found, n, g_st.unit[0].tex, g_lamps.size());
+    if (g_shadow_debug && !found.empty())
+        LOGI("lamps: mesh of %u vertices (texture %u, %.1f m2): %zu bright patches, %d taken as fixtures; %zu fixtures so far", n, g_st.unit[0].tex, mesh_area,
+             found.size(), taken, g_lamps.size());
 }
 
 // ---- blended meshes that should be solid
@@ -2516,14 +2782,17 @@ void setup_frame_lights() {
                 dup = std::fabs(fx[i].wpos[0] - p[0]) < 1.2f && std::fabs(fx[i].wpos[1] - p[1]) < 1.2f && std::fabs(fx[i].wpos[2] - p[2]) < 1.2f;
             if (dup) continue;
             Light l{};
-            float k = std::clamp((34.0f - std::sqrt(d2)) / 2.0f, 0.0f, 1.0f) * 0.42f;
+            // (a door-side lamp of a few centimetres gives less light, and reaches less far, than a long strip)
+            const float size = std::clamp(std::sqrt(lm.n / 0.08f), 0.55f, 1.25f);
+            float k = std::clamp((34.0f - std::sqrt(d2)) / 2.0f, 0.0f, 1.0f) * 0.42f * size;
             // (red only when the game itself is in lockdown: its own lockdown level, not what is on screen)
             const float lock = lights::lockdown_level(), red[3] = {0.95f, 0.10f, 0.07f};
             for (int r = 0; r < 3; r++) {
                 l.wpos[r] = p[r], l.wdir[r] = lm.nrm[r];
+                // (in lockdown the lamps are red, and stronger than they are white: the alarm lighting is meant to be harsh)
                 l.color[r] = lm.c[r] / float(lm.n) * k * (1.0f - lock) + red[r] * (k / 0.42f) * lock;
             }
-            l.radius = 3.2f;
+            l.radius = 2.4f + 1.0f * size;
             fx.push_back(l);
         }
         std::stable_sort(fx.begin(), fx.end(), [&](const Light& a, const Light& b) {
@@ -2606,6 +2875,8 @@ bool box_in_reach(const float* lo, const float* hi, const float* p, float reach)
 // facing into the room, a strip at the foot of a wall facing up and into the room. False when the
 // surroundings are open (or unknown) all round.
 bool open_direction(const float* pos, float out[3]) {
+    StopWatch sw(g_ms_open);
+    g_n_open++;
     const float kReach = 3.0f;
     const int kRays = 48;
     float sum[3] = {0, 0, 0}, total = 0;
@@ -2653,24 +2924,78 @@ void draw_still_scene(const Tile& t) {
 }
 
 void assign_tiles() {
-    u32 now = SDL_GetTicks();
+    const u32 now = SDL_GetTicks();
     auto dist = [](const float* a, const float* b) { return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2])); };
+
+    // 1. Where the still scene changed, every kept map that looks at the change is stale (in view or not).
+    for (Tile& k : g_bakes) {
+        k.present = false;
+        if (!k.used || k.dirty) continue;
+        for (const SBox& ch : g_schanges)
+            if (box_in_reach(ch.lo, ch.hi, k.pos, k.radius + 1.0f)) {
+                k.dirty = true;
+                break;
+            }
+    }
+    g_schanges.clear();
+
+    // 2. Every fixed light of this frame finds its kept map, or takes a free one (or the one unseen longest).
+    for (Light& l : g_spots) {
+        l.bake = l.tile = -1;
+        if (!l.id || l.rotating) continue;
+        int slot = -1;
+        for (int i = 0; i < kBakes && slot < 0; i++)
+            if (g_bakes[i].used && g_bakes[i].id == l.id) slot = i;
+        if (slot < 0) {
+            for (int i = 0; i < kBakes && slot < 0; i++)
+                if (!g_bakes[i].used) slot = i;
+            if (slot < 0) {
+                u32 oldest = now;
+                for (int i = 0; i < kBakes; i++)
+                    if (!g_bakes[i].present && g_bakes[i].seen_ms < oldest) oldest = g_bakes[i].seen_ms, slot = i;
+            }
+            if (slot < 0) continue;  // (more fixed lights in view than maps: this one casts no shadow)
+            g_bakes[slot] = Tile{};
+        }
+        Tile& k = g_bakes[slot];
+        if (k.present) continue;  // (two lights on one spot)
+        const bool spot = l.cos_outer > 0;
+        const float half = spot ? std::acos(std::clamp(l.cos_outer, 0.0f, 1.0f)) + 0.12f : 1.3f;
+        // Its place and reach are the light's. Its facing is the light's until the map has been drawn once;
+        // from then on only open_direction (below) turns it, so it cannot flip with where the player stands.
+        const float dd = l.wdir[0] * k.dir[0] + l.wdir[1] * k.dir[1] + l.wdir[2] * k.dir[2];
+        const bool moved = !k.used || dist(k.pos, l.wpos) > 0.2f || std::fabs(k.radius - l.radius) > 0.1f || std::fabs(k.half - half) > 0.03f ||
+                           (dd < 0.98f && (!k.baked || spot));
+        if (moved) {
+            for (int r = 0; r < 3; r++) k.pos[r] = l.wpos[r];
+            if (!k.baked || spot)
+                for (int r = 0; r < 3; r++) k.dir[r] = l.wdir[r];
+            k.radius = l.radius, k.half = half, k.spot = spot;
+            tile_view(k);
+            k.dirty = true;
+        }
+        k.id = l.id, k.used = k.present = true, k.seen_ms = now;
+        k.fixture = !spot && !l.glow;
+        l.bake = slot;
+    }
+
+    // 3. Live tiles, for what moves: the turning beacons (which can keep nothing) and the fixed lights
+    //    nearest the player. A light keeps its tile until it is 20 m away and gets one within 14 m.
     Light* owner[kTiles] = {};
     for (Tile& t : g_tiles) t.present = false;
     auto claim = [&](int i, Light& l) {
         Tile& t = g_tiles[i];
-        bool spot = l.cos_outer > 0;
-        float half = spot ? std::acos(std::clamp(l.cos_outer, 0.0f, 1.0f)) + 0.12f : 1.3f;
-        float dd = l.wdir[0] * t.dir[0] + l.wdir[1] * t.dir[1] + l.wdir[2] * t.dir[2];
-        bool moved = !t.used || t.id != l.id || dist(t.pos, l.wpos) > 0.2f || dd < 0.98f || std::fabs(t.radius - l.radius) > 0.1f || std::fabs(t.half - half) > 0.03f;
-        if (moved || l.rotating) {
+        if (l.bake >= 0) {
+            const Tile& k = g_bakes[l.bake];
+            for (int r = 0; r < 3; r++) t.pos[r] = k.pos[r], t.dir[r] = k.dir[r];
+            t.radius = k.radius, t.half = k.half, t.spot = k.spot, t.w2c = k.w2c;
+        } else {
+            const bool spot = l.cos_outer > 0;
             for (int r = 0; r < 3; r++) t.pos[r] = l.wpos[r], t.dir[r] = l.wdir[r];
-            t.radius = l.radius, t.half = half, t.spot = spot;
+            t.radius = l.radius, t.half = spot ? std::acos(std::clamp(l.cos_outer, 0.0f, 1.0f)) + 0.12f : 1.3f, t.spot = spot;
             tile_view(t);
-            t.dirty = true;
         }
         t.id = l.id, t.used = t.present = true, t.rotating = l.rotating, t.seen_ms = now;
-        t.fixture = !spot && !l.glow;
         owner[i] = &l;
         l.tile = i;
         for (int r = 0; r < 3; r++) g_tile_pos[i][r] = t.pos[r];
@@ -2682,24 +3007,24 @@ void assign_tiles() {
     };
     std::vector<Cand> cands;
     for (Light& l : g_spots) {
-        if (!l.id) continue;
+        if (!l.id || (l.bake < 0 && !l.rotating)) continue;
         float pd = dist(l.wpos, g_cam_target);
-        if (pd > 20.0f) continue;  // a light keeps its map until it is this far away
+        if (pd > 20.0f) continue;
         int have = -1;
         for (int i = 0; i < kTiles && have < 0; i++)
             if (g_tiles[i].used && g_tiles[i].id == l.id && !g_tiles[i].present) have = i;
         if (have >= 0) claim(have, l);
-        else if (pd < 14.0f) cands.push_back({pd, &l});  // and gets one when it comes this near
+        else if (pd < 14.0f || l.rotating) cands.push_back({l.rotating ? 0.0f : pd, &l});
     }
     std::stable_sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.pd < b.pd; });
     for (Cand& c : cands) {
         int slot = -1;
         for (int i = 0; i < kTiles && slot < 0; i++)
             if (!g_tiles[i].used || (!g_tiles[i].present && now - g_tiles[i].seen_ms > 300)) slot = i;
-        if (slot < 0) {  // all taken: only a light that is clearly farther away gives its map up
+        if (slot < 0) {  // all taken: only a light that is clearly farther away gives its tile up
             float worst = c.pd + 4.0f;
             for (int i = 0; i < kTiles; i++) {
-                if (!g_tiles[i].present) continue;
+                if (!g_tiles[i].present || g_tiles[i].rotating) continue;
                 float d = dist(g_tiles[i].pos, g_cam_target);
                 if (d > worst) worst = d, slot = i;
             }
@@ -2709,20 +3034,22 @@ void assign_tiles() {
         g_tiles[slot].used = false;
         claim(slot, *c.l);
     }
+
     bool any = false;
+    g_bakes_present = 0;
     for (const Tile& t : g_tiles) any |= t.present;
-    if (!any) {
-        g_schanges.clear();
-        return;
-    }
+    for (const Tile& k : g_bakes) g_bakes_present += k.present;
+    if (!any && !g_bakes_present) return;
     g_ntiles = kTiles;
 
-    // draw: the still scene into the maps that need it, then every map starts the frame from its kept depth
-    GLint fb = 0, vp[4];
+    // 4. Draw. Kept maps first: the stale ones in view, nearest the player first, a few per frame.
+    GLint fb = 0, vp[4], act = 0;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb);
     glGetIntegerv(GL_VIEWPORT, vp);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &act);
     p_glBindVertexArray(g_svao);
     if (g_supload) {
+        StopWatch sw(g_ms_upload);
         g_supload = false;
         p_glBindBuffer(GL_ARRAY_BUFFER, g_svbo);
         p_glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(g_sverts.size() * sizeof(float)), g_sverts.data(), GL_DYNAMIC_DRAW);
@@ -2741,50 +3068,74 @@ void assign_tiles() {
     if (g_clip_ok) p_glClipControl(k_LOWER_LEFT, k_NEGATIVE_ONE_TO_ONE);
     p_glUseProgram(g_p_depth);
     static const float one = 1.0f;
+    glEnable(GL_SCISSOR_TEST);
+
+    std::vector<std::pair<float, int>> stale;
+    for (int i = 0; i < kBakes; i++)
+        if (g_bakes[i].present && (g_bakes[i].dirty || !g_bakes[i].baked)) stale.push_back({dist(g_bakes[i].pos, g_cam_target), i});
+    std::sort(stale.begin(), stale.end());
+    g_bakes_pending = int(stale.size());
+    g_bakes_drawn = 0;
+    if (!g_sidx.empty() && !stale.empty()) {
+        StopWatch sw(g_ms_bake);
+        p_glBindFramebuffer(GL_FRAMEBUFFER, g_satlas_fbo);
+        for (size_t n = 0; n < stale.size() && g_bakes_drawn < kBakeBudget; n++) {
+            const int i = stale[n].second;
+            Tile& k = g_bakes[i];
+            if (k.fixture && now - k.open_ms > 250) {
+                // the still scene around the lamp is known (better) now: settle which way the lamp faces
+                k.open_ms = now;
+                float d[3];
+                if (open_direction(k.pos, d) && d[0] * k.dir[0] + d[1] * k.dir[1] + d[2] * k.dir[2] < 0.97f) {
+                    for (int r = 0; r < 3; r++) k.dir[r] = d[r];
+                    tile_view(k);
+                }
+            }
+            g_facing[k.id] = {k.dir[0], k.dir[1], k.dir[2]};
+            const int vx = (i % kBakeCols) * kBakeSize, vy = (i / kBakeCols) * kBakeSize;
+            glViewport(vx, vy, kBakeSize, kBakeSize);
+            glScissor(vx, vy, kBakeSize, kBakeSize);
+            p_glClearBufferfv(GL_DEPTH, 0, &one);
+            draw_still_scene(k);
+            k.dirty = false;
+            if (!k.baked) k.baked = true, k.born_ms = now;
+            g_static_redraws++;
+            g_bakes_drawn++;
+        }
+    }
+
+    // Live tiles: cleared; a beacon's also takes the still scene (it turns), the others only what moves,
+    // which the game's own draws add as the frame goes on (tile_pass).
+    p_glBindFramebuffer(GL_FRAMEBUFFER, g_atlas_fbo);
     for (int i = 0; i < kTiles; i++) {
         Tile& t = g_tiles[i];
         if (!t.present) continue;
+        if (owner[i] && owner[i]->bake >= 0) t.w2c = g_bakes[owner[i]->bake].w2c;  // (it may just have been turned)
         const int vx = (i % 4) * kTileSize, vy = (i / 4) * kTileSize;
-        bool redraw = t.dirty;
-        for (size_t k = 0; k < g_schanges.size() && !redraw; k++) redraw = box_in_reach(g_schanges[k].lo, g_schanges[k].hi, t.pos, t.radius + 1.0f);
-        if (t.fixture && redraw && now - t.open_ms > 250) {
-            // the still scene around the lamp is known better now: settle which way the lamp faces
-            t.open_ms = now;
-            float d[3];
-            if (open_direction(t.pos, d)) {
-                if (d[0] * t.dir[0] + d[1] * t.dir[1] + d[2] * t.dir[2] < 0.97f) {
-                    for (int r = 0; r < 3; r++) t.dir[r] = d[r];
-                    tile_view(t);
-                }
-                g_facing[t.id] = {t.dir[0], t.dir[1], t.dir[2]};
-            }
-        }
         glViewport(vx, vy, kTileSize, kTileSize);
-        if (t.rotating) {  // nothing can be kept: the still scene is drawn straight into this frame's map
-            p_glBindFramebuffer(GL_FRAMEBUFFER, g_atlas_fbo);
-            glEnable(GL_SCISSOR_TEST);
-            glScissor(vx, vy, kTileSize, kTileSize);
-            p_glClearBufferfv(GL_DEPTH, 0, &one);
-            if (!g_sidx.empty()) draw_still_scene(t);
-        } else {
-            if (redraw) {
-                p_glBindFramebuffer(GL_FRAMEBUFFER, g_satlas_fbo);
-                glEnable(GL_SCISSOR_TEST);
-                glScissor(vx, vy, kTileSize, kTileSize);
-                p_glClearBufferfv(GL_DEPTH, 0, &one);
-                if (!g_sidx.empty()) draw_still_scene(t);
-                t.dirty = false;
-                g_static_redraws++;
-            }
-            glDisable(GL_SCISSOR_TEST);
-            p_glBindFramebuffer(GL_READ_FRAMEBUFFER, g_satlas_fbo);
-            p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_atlas_fbo);
-            p_glBlitFramebuffer(vx, vy, vx + kTileSize, vy + kTileSize, vx, vy, vx + kTileSize, vy + kTileSize, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-        }
+        glScissor(vx, vy, kTileSize, kTileSize);
+        p_glClearBufferfv(GL_DEPTH, 0, &one);
+        if (t.rotating && !g_sidx.empty()) draw_still_scene(t);
         g_tile_from_eye[i] = t.w2c * g_view_inv;
     }
-    g_schanges.clear();
     glDisable(GL_SCISSOR_TEST);
+
+    // each kept map's view from this frame's eye space, and how strong its shadows are (fading in)
+    static std::vector<float> rows(size_t(kBakes) * 20);
+    std::fill(rows.begin(), rows.end(), 0.0f);
+    for (int i = 0; i < kBakes; i++) {
+        const Tile& k = g_bakes[i];
+        if (!k.present || !k.baked) continue;
+        const Mat4 m = k.w2c * g_view_inv;
+        std::memcpy(&rows[size_t(i) * 20], m.m, 16 * sizeof(float));
+        rows[size_t(i) * 20 + 16] = std::clamp(float(now - k.born_ms) / 400.0f, 0.0f, 1.0f);
+    }
+    p_glActiveTexture(GL_TEXTURE0 + 12);
+    glBindTexture(GL_TEXTURE_2D, g_bmat_tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 5, kBakes, GL_RGBA, GL_FLOAT, rows.data());
+    p_glActiveTexture(GLenum(act));
+
     p_glBindVertexArray(0);
     p_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     p_glUseProgram(0);
@@ -3095,6 +3446,7 @@ void texture_level(GLuint tex, int level) {
 }
 void texture_game_mipmaps(GLuint tex) { g_tex_meta[tex].game_mips = true; }
 void texture_is_target(GLuint tex) { g_tex_meta[tex].target = true; }
+void texture_pixels(unsigned tex, const unsigned char* rgba, int w, int h) { texture_pixels_impl(tex, rgba, w, h); }
 void texture_deleted(GLuint tex) {
     g_tex_meta.erase(tex);
     g_tex_kind.erase(tex);
@@ -3121,6 +3473,32 @@ void set_shadows(int level) { g_shadows = std::clamp(level, 0, 3); }
 int shadows() { return g_shadows; }
 void set_shadow_debug(bool on) { g_shadow_debug = on; }
 void set_light_shadows(bool on) { g_light_shadows = on; }
+void reload_shaders(const std::string& source_path, void (*done)(const std::string&)) {
+    g_reload_done = done;
+    g_reload_path = source_path;
+}
+
+std::string report() {
+    int spots = 0, glows = 0, tiled = 0, fans = 0;
+    for (auto& l : g_frame_lights) {
+        spots += l.cos_outer > 0 ? 1 : 0;
+        glows += l.glow ? 1 : 0;
+        tiled += l.tile >= 0 ? 1 : 0;
+        fans += l.gobo > 0 ? 1 : 0;
+    }
+    char b[520];
+    std::snprintf(b, sizeof b,
+                  "render: %s; lights %zu (spot %d, panel glow %d, fan %d, with live tile %d); kept maps %d in view (%d stale, %d drawn); shadow tiles %d; "
+                  "caster draws %d; fog draws %d; world tint %s %.2f %.2f %.2f; lockdown %.2f",
+                  g_enabled ? "native" : "legacy", g_frame_lights.size(), spots, glows, fans, tiled, g_bakes_present, g_bakes_pending, g_bakes_drawn, g_ntiles, g_caster_draws,
+                  g_veil_draws_prev, g_tint_active ? "on" : "off", g_tint_color[0], g_tint_color[1], g_tint_color[2],
+                  lights::lockdown_level());
+    return b;
+}
+
+
+void set_perf_log(bool on) { g_perf_log = on; }
+
 int set_fog_veil(int on) {
     if (on >= 0) g_veil_on = on != 0;
     return g_veil_draws;
@@ -3162,11 +3540,13 @@ void scene_changed() {
     g_schanges.clear();
     g_facing.clear();
     for (Tile& t : g_tiles) t = Tile{};
+    for (Tile& k : g_bakes) k = Tile{};
     g_lamps.clear();
     g_lamp_done.clear();
     g_solid.clear();
     g_glow_lights.clear();
     g_tex_images.clear();
+    g_lamp_masks.clear();
     g_gobo_tex = 0;
     g_spin.clear();
     g_fans.clear();
@@ -3270,15 +3650,41 @@ void draw_elements(GLenum mode, int count, GLenum type, const void* indices) {
             if (!g_mesh_moves && g_mesh_cached && g_lights > 0 && !made_solid) lamp_scan(lo, hi - lo + 1);
         }
     }
-    // fog banks drawn over the scene (after its solid geometry) record how much of each pixel they cover
+    // See-through effects drawn over the scene (after its solid geometry) record how much of each pixel they
+    // cover, so that the lighting pass leaves that share alone: the level's fog banks always, anything else
+    // blended (light shafts, flares, steam, sparks) where it floats in front of the surface behind it.
     g_veil_draw = false;
-    if (!g_gbuf_draw && hle::g_veil_target && g_normals_cleared && g_st.blend && !g_post_done && g_proj.top().m[11] != 0.0f &&
-        (g_lights > 0 || g_ao > 0 || g_shadows > 0) && g_arr[A_VERTEX].data &&
-        lights::is_fog_vertices(u32(uintptr_t(g_arr[A_VERTEX].data) - uintptr_t(mem::g_base)))) {
-        GLint fb = 0;
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb);
-        g_veil_draw = GLuint(fb) == hle::g_default_fbo;
-        if (g_veil_draw) g_veil_draws++;
+    if (!g_gbuf_draw && g_veil_on && hle::g_veil_target && g_normals_cleared && g_st.blend && !g_post_done && g_proj.top().m[11] != 0.0f &&
+        (g_lights > 0 || g_ao > 0 || g_shadows > 0) && g_arr[A_VERTEX].data) {
+        const bool fog = lights::is_fog_vertices(u32(uintptr_t(g_arr[A_VERTEX].data) - uintptr_t(mem::g_base)));
+        // (not additive draws: light shafts and flares add light on top of the lit scene and hide nothing;
+        // their polygons, mostly dark, would otherwise show up as unlit patches with hard edges)
+        if (fog || (g_st.depth_test && !g_st.depth_write && g_st.blend_dst != GL_ONE && g_scene.fbo && g_scene_depth)) {
+            GLint fb = 0;
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb);
+            g_veil_draw = GLuint(fb) == hle::g_default_fbo;
+            g_veil_mode = fog ? 0 : 1;
+            g_veilz[0] = g_proj.top().m[10], g_veilz[1] = g_proj.top().m[14], g_veilz[2] = 1.0f / float(g_scene.w), g_veilz[3] = 1.0f / float(g_scene.h);
+            if (g_veil_draw) g_veil_draws++;
+            if (g_veil_draw && !fog && !g_veil_depth) {
+                // the solid scene's depth as it is now, for the shader to measure against
+                g_veil_depth = true;
+                GLint rfb = 0, act = 0;
+                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &rfb);
+                glGetIntegerv(GL_ACTIVE_TEXTURE, &act);
+                const GLboolean sc = glIsEnabled(GL_SCISSOR_TEST);
+                glDisable(GL_SCISSOR_TEST);
+                p_glBindFramebuffer(GL_READ_FRAMEBUFFER, hle::g_default_fbo);
+                p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_scene.fbo);
+                p_glBlitFramebuffer(0, 0, g_scene.w, g_scene.h, 0, 0, g_scene.w, g_scene.h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                p_glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(rfb));
+                p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fb));
+                if (sc) glEnable(GL_SCISSOR_TEST);
+                p_glActiveTexture(GL_TEXTURE0 + 3);
+                glBindTexture(GL_TEXTURE_2D, g_scene_depth);
+                p_glActiveTexture(GLenum(act));
+            }
+        }
     }
     if (g_trace_draws) {
         const float* v = g_verts.data();
@@ -3344,7 +3750,20 @@ void begin_frame() {
     for (int k = 0; k < 3; k++) g_tint_color[k] = g_tint_seen ? g_tint_now[k] : 1.0f, g_tint_now[k] = 1.0f;
     g_tint_seen = false;
     g_tint_nvotes = 0;
+    {
+        static Uint64 last = 0;
+        const Uint64 nowc = SDL_GetPerformanceCounter();
+        const double frame = last ? double(nowc - last) * 1000.0 / double(SDL_GetPerformanceFrequency()) : 0.0;
+        last = nowc;
+        if (g_perf_log && (frame > 25.0 || g_ms_scan + g_ms_open + g_ms_bake + g_ms_upload > 4.0))
+            LOGI("PERF frame %.1f ms: lamp scan %.1f, lamp facing %.1f (%d), map draws %.1f (%d), still-scene upload %.1f (%zu verts)", frame, g_ms_scan, g_ms_open,
+                 g_n_open, g_ms_bake, g_bakes_drawn, g_ms_upload, g_sverts.size() / 3);
+        g_ms_scan = g_ms_open = g_ms_bake = g_ms_upload = 0;
+        g_n_open = 0;
+    }
+    g_veil_draws_prev = g_veil_draws;
     g_veil_draws = 0;
+    g_veil_depth = false;
     g_spots_prev = g_spots;
     glow_frame_end();
     g_spots.clear();

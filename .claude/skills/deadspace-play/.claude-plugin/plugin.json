@@ -1,0 +1,1 @@
+{ "name": "deadspace-play", "version": "0.1.0", "author": { "name": "Dillon" }, "description": "A Play button above the prompt (and /play) that starts the Dead Space port from its dist folder." }

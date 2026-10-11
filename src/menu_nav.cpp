@@ -40,6 +40,7 @@ int g_repick_tries = 0;   // frames spent waiting for the new page's rows
 int g_repick = 0;         // frames until the highlight is placed again (page turning)
 bool g_keyboard = false;  // highlight shown (a navigation key was used since the last mouse use)
 std::function<void(float, float)> g_tap;
+std::function<void()> g_quit;
 
 void on_button_event(cpu::Ctx& c) {
     u32 ev = c.reg(1);
@@ -190,7 +191,7 @@ std::vector<Button> usable() {
     std::vector<Button> out;
     bool options = patches::options_open();
     for (auto& b : all_buttons()) {
-        if (b.item) {
+        if (b.item || b.virt) {
             out.push_back(b);
             continue;
         }
@@ -204,6 +205,17 @@ std::vector<Button> usable() {
         float cx = b.x + b.w * 0.5f, cy = b.y + b.h * 0.5f;
         if (cx < 0 || cy < 0 || cx > g_screen_w || cy > g_screen_h) continue;  // off screen
         out.push_back(b);
+    }
+    // The main menu's Quit button (game_patches.cpp adds it to the layout: a top-bar button whose touch
+    // region is 14..106 x 14..45 inside an entity 120 units from the right edge, 23 from the top). It is
+    // there whenever the main menu's own four buttons are.
+    int main_buttons = 0;
+    for (auto& b : out) main_buttons += b.name == "BTN_PLAY" || b.name == "BTN_OPTIONS" || b.name == "BTN_EXTRAS" || b.name == "BTN_INFO";
+    if (main_buttons == 4) {
+        float k = std::min(g_screen_w / 480.0f, g_screen_h / 320.0f), w = g_screen_w / k;
+        Button q{1, "BTN_QUITGAME", int((w - 120 + 14) * k), int((23 + 14) * k), int(92 * k), int(31 * k), false};
+        q.virt = true;
+        out.push_back(q);
     }
     // the lists stay drawn (faded out) under a confirmation dialog: their entries count only while
     // their screen's own Back button is in use
@@ -219,11 +231,15 @@ const Button* find(const std::vector<Button>& v, u32 obj) {
     return nullptr;
 }
 
-// The button nearest (fx, fy), or the top-left one
+// The button nearest (fx, fy), or the top-left one (of the game's own buttons: the first highlight on
+// the main menu is Play, not the port's Quit button above it)
 const Button* nearest(const std::vector<Button>& v, float fx, float fy) {
     const Button* best = nullptr;
     float bd = 1e30f;
+    bool own = false;
+    for (auto& b : v) own |= !b.virt;
     for (auto& b : v) {
+        if (fx < 0 && own && b.virt) continue;
         float cx = b.x + b.w * 0.5f, cy = b.y + b.h * 0.5f;
         float d = fx < 0 ? cy * 4 + cx : (cx - fx) * (cx - fx) + (cy - fy) * (cy - fy);
         if (d < bd) bd = d, best = &b;
@@ -295,8 +311,24 @@ void install() {
 }
 
 void set_tap(std::function<void(float, float)> tap) { g_tap = std::move(tap); }
+void set_quit(std::function<void()> ask_to_quit) { g_quit = std::move(ask_to_quit); }
+bool click(float x, float y) {
+    for (auto& b : usable())
+        if (b.virt && x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) {
+            if (g_quit) g_quit();
+            return true;
+        }
+    return false;
+}
 
 std::vector<Button> buttons() { return all_buttons(); }
+std::vector<Button> usable_buttons() { return usable(); }
+std::string focused() {
+    if (!g_keyboard) return "";
+    auto v = usable();
+    const Button* b = find(v, g_focus);
+    return b ? b->name : "";
+}
 void hide() { g_keyboard = false; }
 
 bool event(const SDL_Event& e, bool gameplay_active) {

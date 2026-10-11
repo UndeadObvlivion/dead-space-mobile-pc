@@ -28,7 +28,13 @@ struct Button {
     int x, y, w, h;  // game screen pixels
     bool in_window = false;  // inside a scrolling window (an options row)
     bool item = false;       // an entry of the bench's or the store's list (not a LayoutButton)
+    bool virt = false;       // drawn by a layout but no widget of the game's (the main menu's Quit): obj is not an address
 };
+// A tap at (x, y), game screen pixels, on a button of the port's own: true if it was one (and has been acted on)
+bool click(float x, float y);
+void set_quit(std::function<void()> ask_to_quit);  // what the main menu's Quit button does
+std::vector<Button> usable_buttons();  // the ones the player can use right now
+std::string focused();                 // name of the highlighted one ("" = no highlight)
 std::vector<Button> buttons();  // buttons updated during the last game frame (debug)
 
 }  // namespace menu_nav

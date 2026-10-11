@@ -3,7 +3,7 @@
 # whenever the game waits for a struggle move. Stops at once if the game is no longer running.
 export PATH=/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH
 cd "$(dirname "$0")/.."
-bash tools/devfresh.sh --level 02_mines_01 -- --give-weapons >/dev/null 2>&1
+"$BASH" tools/devfresh.sh --level 02_mines_01 -- --give-weapons >/dev/null 2>&1
 python3 tools/dev.py send "renderer native; wait 200; health 200; spawn $1 $2" --timeout 120 </dev/null >/dev/null || { python3 tools/dev.py status; exit 3; }
 shot=0
 for i in $(seq 1 45); do

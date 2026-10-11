@@ -31,3 +31,7 @@ userdata/
 /notes/PadActivity.txt
 /notes/player_onEvent.txt
 /notes/addToggleWidget.txt
+/devrun_*/
+/devrun_*_data/
+/survey/
+/.local/

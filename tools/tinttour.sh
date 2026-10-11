@@ -3,7 +3,7 @@
 # and off) with the legacy renderer.
 export PATH=/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH
 cd "$(dirname "$0")/.."
-bash tools/devfresh.sh >/dev/null 2>&1
+"$BASH" tools/devfresh.sh >/dev/null 2>&1
 python3 tools/dev.py send "renderer native; wait 200; god; bloom 0; vignette 0; sharpen 0; tp -39.6 1 -246; wait 20; face -39.6 -230; wait 150" --timeout 120 </dev/null >/dev/null || { python3 tools/dev.py status; exit 3; }
 for t in "ff2020 1" "20ff20 1" "3040ff 1" "ff2020 0.5" "ffc040 1"; do
   n=$(echo $t | tr ' ' '_')

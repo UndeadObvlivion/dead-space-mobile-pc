@@ -39,7 +39,7 @@ highlight). The arrows beside //Options at the top of the Options screen turn it
 | Esc | pause / back |
 | W A S D / arrow keys (menus) | move the highlight between buttons; at the edge of an Options page, turn the page |
 | Space / Enter (menus) | press the highlighted button |
-| Space / Enter / click during a cinematic | skip it (fast-forwards to the end) |
+| Space / Enter / click during a cinematic | skip it: the cinematic is ended at once through the game's own end-of-animation path (state 2, then 3), so control, HUD, objective and tutorial follow as at its natural end. If one is still playing half a second later, the game clock is fast-forwarded through it instead |
 | hold Left Alt | free the cursor to click on screen (acts as touch) |
 | F11 / Alt+Enter | toggle fullscreen (borderless) |
 | F12 | screenshot (shots/) |
@@ -118,6 +118,10 @@ buttons after any controller input and keys again after any key press, mouse cli
 
 Power node locks: using one opens a small dialog. While it is up the mouse is free and the menu keys
 or the controller work on its buttons (first press highlights, Space / Enter / A confirms).
+
+Quitting: the main menu has a **Quit** button at the top right (click it, or move the highlight up to it
+and confirm). It opens the game's own "Are you sure you want to exit?" prompt, which Esc / B on the main
+menu also does; confirming closes the game. The window's close button and Alt+F4 work at any time.
 
 Bench and store: while either is open the game is a menu, not gameplay: the camera does not move, the
 mouse is free, and the menu keys or the controller work on it (W/A/S/D or arrows / D-pad or left stick,
@@ -231,10 +235,51 @@ Enhancements on the native path:
   "bright pixel" thresholds relative to it, so a tinted or blacked-out room keeps its colour and darkness.
   `tools/tinttour.sh` and `tools/tintcmp.py` compare forced tints (dev command `tint RRGGBB AMOUNT`,
   `tint off`) between the legacy and native renderers.
-- **Fog is not lit as a surface**: the level's fog banks are drawn over the finished scene, and the
-  lighting pass only knows the wall behind them. Their draws (recognised by their vertex data) also
+- **See-through effects are not lit as surfaces**: fog banks, light shafts, beacon flares and steam are
+  drawn over the finished scene, and the lighting pass only knows the wall behind them. Their draws also
   write their coverage to a third colour target, and what the lights, shadows and occlusion did to a
-  pixel is applied only to the share the fog leaves open. Dev: `fogveil 0|1`.
+  pixel is applied only to the share they leave open. Fog banks (recognised by their vertex data) count
+  in full; any other alpha-blended (not additive) draw counts where it floats more than a few centimetres in front of the
+  solid scene (its depth is copied before the first such draw), so decals and holograms lying on a
+  surface are still lit with it. Dev: `fogveil 0|1`.
+- **RIG glow stays on the spine**: two lights of 36 cm reach along the lit part of the health meter,
+  close to the back, instead of one a metre wide that tinted the whole suit; stasis module and visor
+  lights shortened to match.
+- **Baked shadow maps**: every fixed light (strip lights, detected lamps, fan lights, panel glows) owns a
+  kept depth map of the still level as it sees it: 128 maps of 512 x 512 in one 8192 x 4096 atlas, each
+  light's view passed to the shader through a small float texture. A map is drawn when its light is
+  first met (nearest first, at most six per frame, fading in over 0.4 s) and again only when the still
+  scene around it changes (a door opening, new geometry coming into view), and it is remembered when the
+  light leaves the view (the one unseen longest goes first when all 128 are taken). A lamp's facing is
+  settled once from the level around it and no longer follows the player. The 24 live tiles now hold
+  only what moves (the player, enemies, doors, props) for the lights nearest the player, plus the turning
+  alarm beacons, which can keep nothing. A fixed light without a map casts no shadow; the screen-space
+  estimate is left to passing lights only (muzzle flashes, impacts). Shadows therefore do not depend on
+  the camera, on which lights are in view, or on how the player got there.
+  `tools/hallwalk.sh` walks chapter 1's second hallway at maximum settings and records filmstrips;
+  `tools/shadowrepeat.sh` measures wall brightness at three spots before and after a detour.
+- **Lamps everywhere**: every still level mesh is examined once by sampling its texture over its surface
+  (a point every 6 cm). Bright, near-white samples that the level's painted lighting also shows lit are
+  gathered into fixtures by position; a fixture between 0.006 and 0.9 m2 gets a point light whose
+  strength and reach grow with its size. A mesh that is more than a fifth bright is a white surface and
+  gives none. (Chapter 1 models its strip lights as separate triangles; later chapters paint them inside
+  wall panels, which the earlier triangle test missed: 4-8 lights per view there, 40-90 now.)
+- **Light Contrast is local**: the painted lighting is turned down only around added lamps (by how much
+  unshadowed lamp light there is at a pixel), so places no lamp reaches keep the game's own brightness
+  instead of just getting darker. A lamp that barely reaches a pixel cannot shadow it strongly, and a
+  lamp's own face is never darkened by the light that sits on it.
+- **Texture packs** (Options > Graphics > Texture Packs; setting `texture_packs`; read when the game
+  starts): `mods/textures/<pack>/` next to the exe. Each texture is identified by a hash of its original
+  pixels; a pack holds `<hash>.png` replacement colour textures (any size). `--dump-textures-png` (or
+  `texture_dump=1`) writes every texture the game loads to `mods/textures/_dump/`. The folder's
+  `README.txt` (written by the game) explains this for pack makers. (Derived PBR material maps were tried
+  and removed.)
+- **Bright rooms**: the scene as the game lit it is reduced to one pixel each frame (its average colour).
+  In a room the game already lit brightly (average luma above about 0.18, fully by 0.34) the added lamps
+  add little, the Light Contrast dimming is nearly off, overlapping lamps are compressed and the vignette
+  is lighter; shadows and occlusion stay. Without this, a white room with a hundred lamps had its dark
+  tones lifted and its whites greyed (washed out). Dark levels are untouched. `tools/tonecheck.sh LEVEL`
+  compares tone percentiles with the legacy renderer at maximum settings (`tools/pngtone.py`).
 - **Headroom**: added light only fills the headroom a pixel has left. The gain is scaled by
   (1 - the game's own colour) squared, capped at 0.45, and the result never passes 0.92 unless the game
   itself drew it brighter. Dark corridors take the lights fully; the white decks of chapter 1's later
@@ -317,6 +362,39 @@ box nearest your line of sight, and nothing else. With nothing in reach, E grabs
 within ~9 m straight ahead. Plain shoot switches are not used with E (shoot them); covered ones are opened with E.
 
 ### Dev mode
+Dev command `perf 1` logs slow frames with where the renderer's own CPU time went (lamp search, lamp
+facing, shadow-map drawing, still-scene upload). The lamp search is capped at about 2.5 ms per frame and
+skips texture areas with nothing bright in them (a 16 x 16 mask per texture).
+
+Lighting survey: `tools/survey.sh LEVEL [COUNT]` stands in front of COUNT doors looking down the corridor
+and prints, per stop, brightness / clipped / near-black share with the added lighting off and on and the
+lights in use; shots go to `survey/`. `tools/surveysum.py FILES` averages per level. `DS_DEV=name` in
+front of any dev script runs it as a separate instance (own command folder `name/`, own profile
+`name_data/`), so several levels can be surveyed at once. Do not put MSYS2 on the PATH before calling
+the scripts: MSYS2's bash started from Git Bash drops environment variables (the scripts call each other
+with `"$BASH"` for the same reason).
+
+`tools/tomenu.sh` starts a fresh profile and stops at the main menu (a fresh profile only has one after a
+game exists: it starts one, skips the intro, pauses and quits to the menu; about 40 s).
+
+Faster test loops:
+
+- **Quick start**: `tools/devfresh.sh [--level MAP] [--at "X Y Z"] [--renderer native|legacy]` reaches
+  gameplay on a fresh profile in about 6-10 s. It runs the game unthrottled (`turbo 6`: six extra game
+  frames per displayed frame, no frame limit) and keeps pressing "continue" until the player has control,
+  then turns turbo off. Waits are by state, not by frame count: `waitfor play|menu|loading|notloading|button NAME [MAXMS]`,
+  and `tapbtn NAME` taps a menu button by name.
+- **Shader hot-reload**: `shaders` recompiles the six post-processing shaders (bloom, AO, final lighting
+  pass) from the raw strings in `src/render/native.cpp` on disk, in under a second, with no rebuild or
+  restart. A shader that does not compile is reported with the driver's message and the old one stays.
+  The per-draw shader (`kVS` / `kFS`) still needs a rebuild.
+- **Text instead of pictures**: `report` prints the state (gameplay / menu, highlighted button, usable
+  buttons), what the last frame was drawn with (lights by kind, shadow tiles, fog draws, world tint,
+  lockdown) and the player's position; `stat [X0 Y0 X1 Y1]` gives mean colour, luma, saturation, clipped
+  and near-black share of a screen region (fractions of the screen).
+- **Bursts**: `burst NAME [N] [STEP] [DIV]` records N frames STEP frames apart into one filmstrip PNG
+  (four per row), for motion and flicker.
+
 Dev command `rich [CREDITS] [NODES]` fills the wallet (default 9999999 credits, 99 power nodes) for store
 and bench tests; level 01_gov_03 has both next to each other (`goto Store 0`, `goto Bench 0`, `press e`).
 

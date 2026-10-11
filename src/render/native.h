@@ -7,6 +7,7 @@
 // positions, short/float texcoords, ubyte colours), one texture unit with MODULATE, no GL
 // lighting, no skinning extension, linear fog, alpha test, scissor, blend, depth, cull.
 #pragma once
+#include <string>
 #include <vector>
 #include <SDL_opengl.h>
 
@@ -73,6 +74,13 @@ void set_shadows(int level);  // shadows of moving objects, 0-3
 int shadows();
 void set_shadow_debug(bool on);
 void set_vignette(bool on);  // darkened picture edges (3D scene only)
+// dev: one line on what the last frame was drawn with (lights, shadow tiles, fog, tint)
+std::string report();
+// dev: recompiles the post-processing shaders from the raw strings of a native.cpp on disk (no rebuild);
+// done at the next frame's post pass, result through `done`
+void reload_shaders(const std::string& source_path, void (*done)(const std::string&));
+void texture_pixels(unsigned tex, const unsigned char* rgba, int w, int h);  // the game uploaded this level-0 image
+void set_perf_log(bool on);  // dev: log slow frames with where the renderer's CPU time went
 int set_fog_veil(int on);  // dev: 0/1 lighting kept off fog (-1: no change); returns last frame's fog draws
 bool vignette();
 void set_light_shadows(bool on);
@@ -98,7 +106,8 @@ struct Light {
     float dir[3] = {0, 0, 0};  // spotlights: unit direction (eye space)
     float cos_outer = 0;       // spotlights: cosine of the cone's half angle (0 = point light)
     float wpos[3] = {0, 0, 0}, wdir[3] = {0, -1, 0};  // world space (lights that get a shadow map)
-    int tile = -1;             // its tile in the shadow atlas, or -1
+    int tile = -1;             // its live tile in the shadow atlas (things that move), or -1
+    int bake = -1;             // its kept map of the still scene, or -1
     int glow = 0;              // 1: light of a glowing panel (door hologram, screen) found while drawing
     unsigned long long id = 0; // stable identity of a light that stays in the world (keeps its shadow map)
     bool rotating = false;     // its direction changes every frame (alarm beacons)

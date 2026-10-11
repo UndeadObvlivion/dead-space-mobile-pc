@@ -422,10 +422,16 @@ void on_player_post_camera(cpu::Ctx& c) {
     static const float kHigh[3] = {0.25f, 0.95f, 1.0f}, kMid[3] = {1.0f, 0.8f, 0.2f}, kLow[3] = {1.0f, 0.15f, 0.1f};
     const float* hc = hf <= 0.25f ? kLow : hf <= 0.5f ? kMid : kHigh;
     // spine: runs from the waist to between the shoulders; the lit part ends lower as health drops
-    const float back = 0.32f, spine_lo = 0.05f, spine_len = 0.45f;
-    float hk = 0.75f;
+    // The glow stays on the spine: two small lights along the lit part of the meter, close to the back,
+    // each reaching a hand's width or two (one light a metre wide tinted the whole suit).
+    const float back = 0.24f, spine_lo = 0.05f, spine_len = 0.45f;
+    float hk = 0.95f;
     const float hcol[3] = {hc[0] * hk, hc[1] * hk, hc[2] * hk};
-    if (hf > 0) push(p.x - f.x * back, p.y + spine_lo + spine_len * hf * 0.5f, p.z - f.z * back, hcol, 0.8f + 0.2f * hf, 150.0f, 1);
+    if (hf > 0) {
+        const float lit = spine_len * hf;
+        push(p.x - f.x * back, p.y + spine_lo + lit * 0.28f, p.z - f.z * back, hcol, 0.36f, 150.0f, 1);
+        if (hf > 0.35f) push(p.x - f.x * back, p.y + spine_lo + lit * 0.78f, p.z - f.z * back, hcol, 0.36f, 150.0f, 5);
+    }
 
     float smax = fn_stasis_max ? call_f(fn_stasis_max, pl) : 0;
     float sf = smax > 0 ? (g_stasis < 0 ? 1.0f : std::clamp(g_stasis / smax, 0.0f, 1.0f)) : 0.0f;
@@ -435,11 +441,11 @@ void on_player_post_camera(cpu::Ctx& c) {
     if (tk) sk = 0.75f + 0.25f * std::sin(float(SDL_GetTicks()) * 0.012f);
     const float scol[3] = {0.3f * sk, 0.85f * sk, 1.0f * sk};
     const float side = 0.17f;  // to the player's right
-    if (smax > 0) push(p.x - f.x * back - f.z * side, p.y + 0.42f, p.z - f.z * back + f.x * side, scol, tk ? 1.5f : 0.6f, 150.0f, 2);
+    if (smax > 0) push(p.x - f.x * back - f.z * side, p.y + 0.42f, p.z - f.z * back + f.x * side, scol, tk ? 1.2f : 0.3f, 150.0f, 2);
 
     // helmet visor: a faint glow in front of the face
     static const float kVisor[3] = {0.2f, 0.32f, 0.5f};  // the visor slits are blue-white
-    push(p.x + f.x * 0.42f, p.y + 0.72f, p.z + f.z * 0.42f, kVisor, 0.9f, 150.0f, 3);
+    push(p.x + f.x * 0.36f, p.y + 0.72f, p.z + f.z * 0.36f, kVisor, 0.5f, 150.0f, 3);
 
     u32 now = SDL_GetTicks();
     // plasma saw: the light sits on the glowing blade itself, where the renderer sees it drawn, and takes
@@ -638,7 +644,7 @@ void debug_list(std::vector<DebugLight>& out) {
         DebugLight d;
         for (int i = 0; i < 3; i++) d.pos[i] = s.p[i], d.color[i] = s.c[i];
         d.radius = s.radius;
-        d.kind = s.id == 1 ? "RIG HEALTH" : s.id == 2 ? "STASIS MODULE" : s.id == 3 ? "VISOR" : s.id == 4 ? "SAW" : s.id >= 10 && s.id < 20 ? "NAV LINE" : s.id ? "PROJECTILE" : "FLASH";
+        d.kind = s.id == 1 || s.id == 5 ? "RIG HEALTH" : s.id == 2 ? "STASIS MODULE" : s.id == 3 ? "VISOR" : s.id == 4 ? "SAW" : s.id >= 10 && s.id < 20 ? "NAV LINE" : s.id ? "PROJECTILE" : "FLASH";
         out.push_back(d);
     }
     // lit this frame by the renderer: alarm spotlights and the nearest strip lights

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "hle/gles.h"
+#include "texpack.h"
 #include "hle/hle.h"
 #include "render/native.h"
 
@@ -99,6 +100,7 @@ GLuint g_array_buffer = 0, g_element_buffer = 0;
 GLuint g_bound_tex[4] = {};
 
 struct TexInfo {
+    bool replaced = false;  // its image comes from a texture pack (the game's own mip levels are not used)
     int w = 0, h = 0;
     int crop[4] = {0, 0, 0, 0};
 };
@@ -876,6 +878,30 @@ void present_read(int w, int h, void* rgba) {
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 }
 
+// Uploads one decoded RGBA level of the bound texture. Level 0 is shown to the texture pack first: if it
+// has a replacement, that goes up instead (with mipmaps of its own) and the game's further levels of this
+// texture are dropped.
+void upload_rgba(GLenum target, GLint level, int w, int h, const u8* px) {
+    const GLuint tex = g_bound_tex[g_active_unit];
+    TexInfo& ti = g_tex[tex];
+    if (level <= 0 && target == GL_TEXTURE_2D) {
+        const texpack::Image* rep = texpack::on_upload(tex, px, w, h);
+        if (rep) render::texture_pixels(tex, rep->px.data(), rep->w, rep->h);
+        else render::texture_pixels(tex, px, w, h);
+        ti.replaced = rep != nullptr;
+        if (rep) {
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(target, 0, GL_RGBA, rep->w, rep->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rep->px.data());
+            if (p_glGenerateMipmap) p_glGenerateMipmap(target);
+            render::texture_game_mipmaps(tex);
+            return;
+        }
+    } else if (ti.replaced) {
+        return;
+    }
+    glTexImage2D(target, level < 0 ? 0 : level, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+}
+
 void register_gles() {
     g_str_vendor = mem::data_strdup("Dead Space PC port");
     g_str_renderer = mem::data_strdup("OpenGL ES 1.1 translation layer");
@@ -1251,6 +1277,7 @@ void register_gles() {
         GLuint* t = c.argp<GLuint>(1);
         for (int i = 0; i < n; i++) {
             g_tex.erase(t[i]);
+            texpack::on_delete(t[i]);
             render::texture_deleted(t[i]);
         }
         glDeleteTextures(n, t);
@@ -1275,6 +1302,32 @@ void register_gles() {
         if (level == 0) render::texture_format(g_bound_tex[g_active_unit], fmt);
         render::texture_level(g_bound_tex[g_active_unit], level);
         LOGD("glTexImage2D tex=%u level=%d ifmt=0x%x %dx%d fmt=0x%x type=0x%x", g_bound_tex[g_active_unit], level, ifmt, w, h, fmt, type);
+        // plain RGBA / RGB images can be replaced by a texture pack like the compressed ones
+        if (target == GL_TEXTURE_2D && type == GL_UNSIGNED_BYTE && (fmt == GL_RGBA || fmt == GL_RGB) && c.arg(8) && w >= 8 && h >= 8) {
+            const u8* src = static_cast<const u8*>(hp(c.arg(8)));
+            if (fmt == GL_RGBA) {
+                std::vector<u8> tight;
+                upload_rgba(target, level, w, h, src);
+            } else {
+                std::vector<u8> rgba(size_t(w) * size_t(h) * 4);
+                const size_t row = (size_t(w) * 3 + 3) & ~size_t(3);  // (rows are 4-byte aligned by default)
+                GLint align = 4;
+                glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
+                const size_t stride = align == 1 ? size_t(w) * 3 : row;
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++) {
+                        const u8* p = src + size_t(y) * stride + size_t(x) * 3;
+                        u8* o = &rgba[(size_t(y) * size_t(w) + size_t(x)) * 4];
+                        o[0] = p[0], o[1] = p[1], o[2] = p[2], o[3] = 255;
+                    }
+                GLint old = 4;
+                glGetIntegerv(GL_UNPACK_ALIGNMENT, &old);
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                upload_rgba(target, level, w, h, rgba.data());
+                glPixelStorei(GL_UNPACK_ALIGNMENT, old);
+            }
+            return;
+        }
         glTexImage2D(target, level, ifmt, w, h, GLint(c.arg(5)), fmt, type, hp(c.arg(8)));
     });
     reg("glTexSubImage2D", [](Ctx& c) {
@@ -1309,25 +1362,23 @@ void register_gles() {
             // The fan-fixed APK re-encoded its ATC textures as ETC2 (same block sizes) but the game still
             // labels them ATC. A pristine APK has real ATC data: --atc-textures selects that decoder.
             auto img = g_real_atc ? decode_atc(fmt, data, w, h) : decode_etc2(data, w, h, fmt != k_ATC_RGB);
-            glTexImage2D(target, level, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.data());
+            upload_rgba(target, level, w, h, img.data());
             return;
         }
         if (fmt == 0x9274 || fmt == 0x9278) {  // genuine ETC2 RGB8 / RGBA8_EAC
             auto img = decode_etc2(data, w, h, fmt == 0x9278);
-            glTexImage2D(target, level, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.data());
+            upload_rgba(target, level, w, h, img.data());
             return;
         }
         if (fmt == k_ETC1_RGB8_OES) {
             auto img = decode_etc2(data, w, h, false);
-            glTexImage2D(target, level, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.data());
+            upload_rgba(target, level, w, h, img.data());
             return;
         }
         if (fmt >= k_PALETTE4_RGB8_OES && fmt <= k_PALETTE8_RGB5_A1_OES) {
             int levels = level < 0 ? 1 - level : 1;
             auto imgs = decode_palette(fmt, data, w, h, levels);
-            for (int l = 0; l < levels; l++)
-                glTexImage2D(target, l, GL_RGBA, std::max(1, w >> l), std::max(1, h >> l), 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, imgs[l].data());
+            for (int l = 0; l < levels; l++) upload_rgba(target, l, std::max(1, w >> l), std::max(1, h >> l), imgs[l].data());
             return;
         }
         char b[64];

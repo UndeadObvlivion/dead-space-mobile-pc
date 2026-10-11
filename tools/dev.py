@@ -20,7 +20,8 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEV = os.path.join(ROOT, "devrun")
+# DS_DEV=name runs a second, independent dev instance (its own command directory and profile)
+DEV = os.path.join(ROOT, os.environ.get("DS_DEV", "devrun"))
 OUT = os.path.join(DEV, "out.txt")
 CMD = os.path.join(DEV, "cmd.txt")
 PIDFILE = os.path.join(DEV, "pid.txt")
@@ -122,13 +123,13 @@ def start(args):
             extra = args[i + 1:]; break
         else:
             extra.append(a); i += 1
-    data = data or os.path.join(ROOT, "freshdata")
+    data = data or os.path.join(ROOT, "freshdata" if "DS_DEV" not in os.environ else os.environ["DS_DEV"] + "_data")
     if fresh and os.path.isdir(data):
         shutil.rmtree(data)
     os.makedirs(DEV, exist_ok=True)
     if os.path.exists(OUT):
         os.remove(OUT)
-    cmd = [os.path.join(ROOT, "build", "deadspace.exe"), "--assets", os.path.join(ROOT, "dist/gamedata/assets"),
+    cmd = [os.environ.get("DS_EXE") or os.path.join(ROOT, "build", "deadspace.exe"), "--assets", os.path.join(ROOT, "dist/gamedata/assets"),
            "--lib", os.path.join(ROOT, "dist/gamedata/libDeadSpace.so"), "--data", data, "--dev", DEV,
            "--log", os.path.join(DEV, "game.log")] + (["--level", level] if level else []) + extra
     flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP

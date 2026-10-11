@@ -64,9 +64,14 @@ u32 vt_vector2, vt_action;
 
 bool g_trace = false;
 
-// Cinematics (GameObjectCinematic, e.g. the opening fly-by): state +0x174, 1/2 = playing,
-// 3 = finished. Skipping (Space / Enter / click) fast-forwards the game clock until the
-// cinematic has finished on its own, so every animation, script and camera hand-off still runs.
+// Cinematics (GameObjectCinematic, e.g. the opening fly-by): state +0x174, 1 = starting, 2 = playing,
+// 3 = finished. The game ends one by calling stateTransition(3) when its animation is over
+// (onAnimEnd); skipping (Space / Enter / click, A / Start) makes that same call at once, from the
+// cinematic's own update, so the camera is handed back and the scripts waiting for it go on exactly as
+// at its natural end. Should a cinematic still be playing half a second later, the old way takes over:
+// the game clock is fast-forwarded until it has finished by itself.
+std::atomic<bool> g_cine_skip{false};
+std::atomic<int> g_cine_skip_frames{0};  // frames since a skip was asked for (0 = none pending)
 u32 fn_cine_transition = 0;
 std::atomic<u32> g_cinematic{0};        // cinematic currently playing
 std::atomic<u32> g_cinematic_tick{0};
@@ -616,6 +621,14 @@ void on_cinematic_update(cpu::Ctx& c) {
     }
     g_cinematic = cine;
     g_cinematic_tick++;
+    if (g_cine_skip && fn_cine_transition) {
+        g_cine_skip = false;
+        LOGI("input: cinematic %08x ended by skip (was in state %d)", cine, state);
+        // (state 2 is the cinematic's last stretch, in which the HUD and the objective come up: it is
+        // entered first, as the game does, then the end)
+        if (state == 1) cpu::call(fn_cine_transition, {cine, 2});
+        cpu::call(fn_cine_transition, {cine, 3});
+    }
 }
 
 // ---------------------------------------------------------------- main thread
@@ -733,6 +746,7 @@ float free_look_yaw() { return g_free_yaw; }
 void set_interact_debug(bool on) { g_interact_debug = on; }
 bool interact_debug() { return g_interact_debug; }
 bool controls_active() { return g_mouse_captured; }
+void press_back() { back_key(); }
 void begin_capture(int i) { g_capture = i; }
 bool capturing() { return g_capture >= 0; }
 bool fast_forwarding() { return g_fast_forward; }
@@ -1077,10 +1091,9 @@ bool event(const SDL_Event& e, SDL_Window* win) {
         ((e.type == SDL_KEYDOWN && !e.key.repeat &&
           (e.key.keysym.sym == SDLK_SPACE || e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER)) ||
          (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT))) {
-        if (!g_fast_forward) {
-            LOGI("input: skipping cinematic (fast-forward)");
-            g_fast_forward = true;
-            timing::set_time_scale(kSkipSpeed);
+        if (!g_fast_forward && !g_cine_skip_frames) {
+            g_cine_skip = true;
+            g_cine_skip_frames = 1;
         }
         return true;
     }
@@ -1160,6 +1173,16 @@ bool frame(SDL_Window* win) {
         g_cine_tick_seen = ctick;
     } else if (g_frames_without_cine < 1000) {
         g_frames_without_cine++;
+    }
+    if (g_cine_skip_frames) {
+        if (!cinematic_playing()) {
+            g_cine_skip_frames = 0, g_cine_skip = false;
+        } else if (++g_cine_skip_frames > 30 && !g_fast_forward) {  // it did not end: fast-forward through it
+            LOGI("input: cinematic still playing after the skip: fast-forwarding");
+            g_cine_skip = false;
+            g_fast_forward = true;
+            timing::set_time_scale(kSkipSpeed);
+        }
     }
     if (g_fast_forward && !cinematic_playing()) {
         g_fast_forward = false;

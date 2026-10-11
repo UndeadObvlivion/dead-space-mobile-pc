@@ -19,6 +19,7 @@
 #include "config.h"
 #include "crash.h"
 #include "settings.h"
+#include "texpack.h"
 #include "cpu.h"
 #include "elf_loader.h"
 #include "game_patches.h"
@@ -119,23 +120,32 @@ void save_screenshot(const std::string& path, int w, int h) {
     }
 }
 
-// Saves the game's current frame as a PNG scaled down by `div` (box filter).
-void save_png(const std::string& path, int w, int h, int div) {
+// The game's current frame as 8-bit RGB rows (top row first), scaled down by `div` (box filter).
+std::vector<u8> grab_rgb(int div, int& ow, int& oh) {
+    const int w = g_config.screen_w, h = g_config.screen_h;
     std::vector<u8> px(size_t(w) * h * 4);
     hle::present_read(w, h, px.data());
-    int ow = w / div, oh = h / div;
-    std::vector<u8> raw(size_t(oh) * (size_t(ow) * 3 + 1));
-    for (int y = 0; y < oh; y++) {
-        u8* row = &raw[size_t(y) * (size_t(ow) * 3 + 1)];
-        row[0] = 0;  // filter: none
+    ow = w / div, oh = h / div;
+    std::vector<u8> rgb(size_t(ow) * oh * 3);
+    for (int y = 0; y < oh; y++)
         for (int x = 0; x < ow; x++)
             for (int c = 0; c < 3; c++) {
                 unsigned sum = 0;
                 for (int dy = 0; dy < div; dy++)
                     for (int dx = 0; dx < div; dx++)
                         sum += px[(size_t(h - 1 - (y * div + dy)) * w + size_t(x * div + dx)) * 4 + c];
-                row[1 + x * 3 + c] = u8(sum / unsigned(div * div));
+                rgb[(size_t(y) * ow + x) * 3 + c] = u8(sum / unsigned(div * div));
             }
+    return rgb;
+}
+
+// Writes 8-bit RGB rows as a PNG.
+void write_png(const std::string& path, int ow, int oh, const std::vector<u8>& rgb) {
+    std::vector<u8> raw(size_t(oh) * (size_t(ow) * 3 + 1));
+    for (int y = 0; y < oh; y++) {
+        u8* row = &raw[size_t(y) * (size_t(ow) * 3 + 1)];
+        row[0] = 0;  // filter: none
+        std::memcpy(row + 1, &rgb[size_t(y) * ow * 3], size_t(ow) * 3);
     }
     uLongf zlen = compressBound(uLong(raw.size()));
     std::vector<u8> z(zlen);
@@ -168,6 +178,13 @@ void save_png(const std::string& path, int w, int h, int div) {
     std::fclose(f);
 }
 
+// Saves the game's current frame as a PNG scaled down by `div`.
+void save_png(const std::string& path, int, int, int div) {
+    int ow, oh;
+    std::vector<u8> rgb = grab_rgb(div, ow, oh);
+    write_png(path, ow, oh, rgb);
+}
+
 std::string first_existing(std::initializer_list<std::string> paths) {
     for (auto& p : paths) {
         std::error_code ec;
@@ -186,6 +203,7 @@ int main(int argc, char** argv) {
     bool res_set = false;
     int msaa_arg = -1;
     bool crash_test = false;
+    bool dump_png = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -229,6 +247,7 @@ int main(int argc, char** argv) {
         else if (a == "--dump-textures") hle::g_dump_dir = next();
         else if (a == "--gltrace") gl_trace_frame = std::stoull(next());  // debug: log that frame's GL calls
         else if (a == "--atc-textures") hle::g_real_atc = true;
+        else if (a == "--dump-textures-png") dump_png = true;  // write every texture the game loads to mods/textures/_dump
         else if (a == "--exit-frame") exit_frame = std::stoull(next());
         else if (a == "--shots") {  // comma separated frame numbers to capture
             std::string list = next();
@@ -299,6 +318,7 @@ int main(int argc, char** argv) {
     hle::g_data_dir = data;
     fs::create_directories(data);
     settings::load(data + "/port_settings.ini");
+    texpack::init(base, settings::get_int("texture_packs", 1) != 0, dump_png || settings::get_int("texture_dump", 0) != 0);
     if (msaa_arg >= 0) settings::set_int("msaa", msaa_arg);
     LOGI("assets: %s", assets.c_str());
     LOGI("library: %s", lib.c_str());
@@ -422,11 +442,14 @@ int main(int argc, char** argv) {
     bool mouse_down = false;
     u64 frames = 0;
     menu_nav::set_tap([&](float x, float y) { g_taps.push_back({frames + 1, x, y, 4, 0, 0}); });
+    menu_nav::set_quit([] { input::press_back(); });
     if (!dev_dir.empty()) {
         dev::Host host;
         host.tap = [&](float x, float y, int hold) { g_taps.push_back({frames + 1, x, y, hold, 0, 0}); };
         host.screenshot = [](const std::string& path) { save_png(path, g_config.screen_w, g_config.screen_h, path.find("_full.png") != std::string::npos ? 1 : 4); };
         host.quit = [] { g_quit = true; };
+        host.grab = [](int div, int& ow, int& oh) { return grab_rgb(div, ow, oh); };
+        host.write_png = write_png;
         dev::init(dev_dir, host);
     }
     int win_w = 0, win_h = 0;  // drawable size
@@ -504,7 +527,7 @@ int main(int argc, char** argv) {
         }
         for (auto& t : g_taps) {
             if (t.frame == frames + 1) {
-                if (patches::options_click(t.x, t.y)) {  // options header page arrows
+                if (patches::options_click(t.x, t.y) || menu_nav::click(t.x, t.y)) {  // options header page arrows; the main menu's Quit
                     t.hold = 0;
                     continue;
                 }
@@ -541,6 +564,21 @@ int main(int argc, char** argv) {
         } else if (ff_vsync_off) {
             SDL_GL_SetSwapInterval(settings::get_int("vsync", 1) ? 1 : 0);
             ff_vsync_off = false;
+        }
+        // dev "turbo N": N extra game frames per displayed frame, no frame limit (quick starts, long waits)
+        static bool turbo_vsync_off = false;
+        if (int turbo = dev::turbo()) {
+            if (!turbo_vsync_off) SDL_GL_SetSwapInterval(0), turbo_vsync_off = true;
+            for (int i = 0; i < turbo && dev::turbo(); i++) {
+                menu_nav::frame(true);  // (keeps its list of live buttons per game frame; draws nothing)
+                input::frame(win);
+                render::begin_frame();
+                native(kRenderer, "NativeOnDrawFrame", "()V", renderer);
+                render::end_frame();
+            }
+        } else if (turbo_vsync_off) {
+            SDL_GL_SetSwapInterval(settings::get_int("vsync", 1) ? 1 : 0);
+            turbo_vsync_off = false;
         }
         if (int grab = input::grab()) {
             // grabbed: the button prompt, in place of the game's swipe / tap instructions
@@ -594,7 +632,7 @@ int main(int argc, char** argv) {
         if (exit_frame && frames >= exit_frame) g_quit = true;
 
         const int fps_limit = fps_arg >= 0 ? fps_arg : settings::get_int("fps_limit", 60);  // 0 = unlimited
-        if (fps_limit > 0 && !input::fast_forwarding()) {  // the game was built for phone frame rates
+        if (fps_limit > 0 && !input::fast_forwarding() && !dev::turbo()) {  // the game was built for phone frame rates
             static u64 next_tick = SDL_GetPerformanceCounter();
             const u64 freq = SDL_GetPerformanceFrequency();
             next_tick += freq / u64(fps_limit);

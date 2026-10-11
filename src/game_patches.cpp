@@ -73,6 +73,7 @@ const std::vector<PortRow>& port_rows() {
                                   {"SHADOWS", "Shadows", false, -1, kPageGraphics, 0},
                                   {"LIGHT_SHADOWS", "Light Shadows", false, -1, kPageGraphics, 0},
                                   {"LIGHT_CONTRAST", "Light Contrast", false, -1, kPageGraphics, 0},
+                                  {"TEXPACKS", "Texture Packs", false, -1, kPageGraphics, 0},
                                   {"VIGNETTE", "Vignette", false, -1, kPageGraphics, 0},
                                   {"VSYNC", "V-Sync", false, -1, kPageGraphics, 0},
                                   {"FPS_LIMIT", "Frame Rate Limit", false, -1, kPageGraphics, 0},
@@ -137,6 +138,8 @@ template <class T> void put(u8* p, T v) { std::memcpy(p, &v, sizeof v); }
 // entity names and label, placed in both options panes (main menu and pause menu):
 //   - "Anti-Aliasing" under "Invert Y Axis" on page 3
 //   - the port rows on pages 4+ (pages are 480 units apart, rows 60 apart)
+const float kQuitTextDy = 23.0f;  // the caption of the top-bar button, moved down into it
+
 bool patch_layouts(sbin::Database& db) {
     int s_layout = db.find_struct("Layout"), s_entity = db.find_struct("Entity"), s_vertex = db.find_struct("Vertex");
     if (s_layout < 0 || s_entity < 0 || s_vertex < 0) return false;
@@ -204,6 +207,53 @@ bool patch_layouts(sbin::Database& db) {
     for (auto& r : port_rows())
         new_layouts.push_back(make_row(r.slider ? row8 : row9, r.slider ? "SENSITIVITY" : "INVERT_Y", "PORT_" + r.key,
                                        "OPTIONS_PORT_" + r.key, "UI_HEADER_PORT_" + r.key, kRowScale));
+
+    // A Quit button on the main menu. The game can exit (the back key on the main menu asks "Are you sure
+    // you want to exit?"), but shows no button for it. This one takes the place of the two hidden top-right
+    // links to EA's store pages, with the same top-bar button art: a copy of that button's layout without
+    // the logos, its caption replaced by "Quit" inside the button. The game makes no widget for an entity
+    // it does not know, so menu_nav treats its area as a button and sends the back key.
+    {
+        long top = find_layout("UI_BUTTON_MAIN_TOP"), menu = find_layout("UI_MAIN");
+        if (top >= 0 && menu >= 0) {
+            size_t ents = entities(size_t(top));
+            u32 n = db.array_count(ents), kept = 0;
+            std::vector<u8> src(db.body(ents), db.body(ents) + size_t(n) * esize), out;
+            for (u32 i = 0; i < n; i++) {
+                u8* e = &src[i * esize];
+                std::string name = db.string(get<u16>(e + o_name));
+                if (name.rfind("ICON_", 0) == 0 || name == "TEXT_DOWNLOAD_CONTENT") continue;
+                if (name == "TEXT_MORE_GAMES") {
+                    put<u16>(e + o_name, db.add_string("TEXT_QUIT"));
+                    put<u16>(e + o_str, db.add_string("PORT_QUIT_GAME"));
+                    s32 v = get<s32>(e + o_verts);
+                    if (v >= 0) put<s32>(e + o_verts, clone_array(size_t(v), 0, kQuitTextDy));
+                }
+                out.insert(out.end(), e, e + esize);
+                kept++;
+            }
+            s32 quit_ents = s32(db.add_array(16, u16(s_entity), kept, out));
+            std::vector<u8> lay(size_t(lsize), 0);
+            put<u16>(&lay[size_t(o_id)], db.add_string("UI_BUTTON_QUIT_TOP"));
+            put<s32>(&lay[size_t(o_ents)], quit_ents);
+            new_layouts.push_back(s32(db.add_struct_object(u16(s_layout), lay)));
+
+            size_t arr = entities(size_t(menu));
+            u32 m = db.array_count(arr);
+            std::vector<u8> d(db.body(arr), db.body(arr) + size_t(m) * esize);
+            for (u32 i = 0; i < m; i++) {
+                if (db.string(get<u16>(&d[i * esize] + o_name)) != "BTN_EA") continue;
+                std::vector<u8> e(d.begin() + i * esize, d.begin() + (i + 1) * esize);
+                put<u16>(&e[size_t(o_name)], db.add_string("BTN_QUITGAME"));
+                put<u16>(&e[size_t(o_lay)], db.add_string("UI_BUTTON_QUIT_TOP"));
+                d.insert(d.end(), e.begin(), e.end());
+                db.add_array(16, u16(s_entity), m + 1, d);
+                db.replace_with_last(arr);
+                LOGI("menu patch: Quit button added to the main menu");
+                break;
+            }
+        }
+    }
 
     // 2. register them in the list of all layouts (the object array that contains row 9)
     for (size_t i = 0; i < db.object_count(); i++) {
@@ -388,6 +438,7 @@ bool patch_strings(sbin::Database& db, const Lang& lang) {
             LOGI("strings: %d touch instructions reworded for %s", changed, pad ? "a controller" : "keyboard and mouse");
         }
         add("OPTIONS_ANTI_ALIASING", lang.label);
+        add("PORT_QUIT_GAME", "Quit");
         add("AA_OFF", lang.off);
         add("AA_2X", "2x");
         add("AA_4X", "4x");
@@ -610,6 +661,10 @@ void on_panel_init(cpu::Ctx& c) {
             set_options(pw.w, {"NO", "YES"});
             pw.shown = render::vignette() ? 1 : 0;
             select(pw.w, pw.shown);
+        } else if (r.key == "TEXPACKS") {
+            set_options(pw.w, {"NO", "YES"});
+            pw.shown = settings::get_int("texture_packs", 1) ? 1 : 0;
+            select(pw.w, pw.shown);
         } else if (r.key == "LIGHT_SHADOWS") {
             set_options(pw.w, {"NO", "YES"});
             pw.shown = render::light_shadows() ? 1 : 0;
@@ -693,6 +748,8 @@ void poll_port_rows() {
         } else if (r.key == "VIGNETTE") {
             render::set_vignette(idx != 0);
             settings::set_int("vignette", idx ? 1 : 0);
+        } else if (r.key == "TEXPACKS") {  // (textures are replaced as they load: takes effect at the next start)
+            settings::set_int("texture_packs", idx ? 1 : 0);
         } else if (r.key == "LIGHT_SHADOWS") {
             render::set_light_shadows(idx != 0);
             settings::set_int("light_shadows", idx ? 1 : 0);

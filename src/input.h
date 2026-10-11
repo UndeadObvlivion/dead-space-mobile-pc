@@ -36,6 +36,7 @@ bool interact_debug();
 // Treats every key and mouse button as released (e.g. while a console takes the keyboard).
 void release_all();
 // True while gameplay controls are active (mouse captured; not in a menu).
+void press_back();  // the Android back key: goes back in menus; on the main menu, asks whether to exit
 bool controls_active();
 
 // ---- rebindable controls (used by the Options menu)

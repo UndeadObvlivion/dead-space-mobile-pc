@@ -10,6 +10,7 @@ void gles_init_host();
 extern GLuint g_default_fbo;
 extern GLenum g_depth_fmt;
 extern bool g_normal_target;
+extern bool g_veil_target;  // COLOR_ATTACHMENT2: how much fog covers each pixel (native renderer)
 
 // Offscreen render target the game draws into, scaled to the window when presenting.
 void present_init(int w, int h, int msaa_samples);

@@ -25,6 +25,7 @@ bool event(const SDL_Event& e, SDL_Window* win);
 // Runs fn on the game thread during the player's next update (fn gets the player object).
 void run_on_game_thread(std::function<void(unsigned player)> fn);
 unsigned world();
+int grab();  // 0 = free; 1/5/7 = grabbed, waiting for a move; 100 = swarms attached
 unsigned player();  // the live player object, or 0
 // Eye, target and up of the gameplay camera (physics/render space); false when it has not been
 // computed in the last 100 ms (cinematics, menus).
@@ -54,6 +55,16 @@ void reset_bindings();
 std::string code_name(int code);  // "W", "Left Shift", "Mouse Left"...
 // Every code that can be bound (for building the menu's string table).
 const std::vector<int>& bindable_codes();
+// ---- controller
+// Controller codes: kPadCode + SDL_GameControllerButton; kPadCode + 100 / 101 = left / right trigger.
+// Controller bindings are binding indices kPadBindBase .. kPadBindBase + pad_binding_count() - 1 in
+// binding(), binding_code(), set_binding() and begin_capture().
+constexpr int kPadCode = 2000, kPadBindBase = 100;
+int pad_binding_count();
+void reset_pad_bindings();
+bool using_pad();  // the controller was the last device used (prompts follow it)
+// What to press for an action ("interact", "fire", "melee"...): the bound key, or the bound button.
+std::string action_label(const std::string& key, bool pad);
 // Waits for the next key / mouse button press and binds it to action i (Esc cancels).
 void begin_capture(int i);
 bool capturing();

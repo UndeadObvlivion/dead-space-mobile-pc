@@ -1,5 +1,6 @@
 // Dynamic light sources for the native renderer, taken from game events.
 #pragma once
+#include <string>
 #include <vector>
 
 #include "render/native.h"
@@ -27,7 +28,13 @@ void debug_list(std::vector<DebugLight>& out);
 bool camera_matrix(float view[16], float target[3]);
 // The strip light fixtures within view distance of `at` (world space: wpos, color, radius), nearest first.
 void fixtures_world(const float at[3], std::vector<render::Light>& out);
+// 0 = normal lighting .. 1 = lockdown (red), as the game is fading it right now.
+float lockdown_level();
+// The vertex data at this guest address belongs to one of the level's fog banks (proximity-fade meshes)
+bool is_fog_vertices(u32 guest_addr);
 // Dev: force hidden level nodes (registered flares / animated nodes) near x, z to be drawn. Game thread.
 int debug_show_nodes(float x, float z, float radius);
+// Dev: the nearest proximity-fade effect nodes and their state. Game thread.
+std::string debug_fade_nodes(float x, float y, float z);
 
 }  // namespace lights

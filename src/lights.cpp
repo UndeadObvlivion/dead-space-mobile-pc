@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <string>
 
 #include "cpu.h"
@@ -130,6 +131,70 @@ void note_node(u32 world, u32 node, int kind) {
     }
     if (node) g_nodes.push_back({node, kind});
 }
+std::vector<u32> g_fade_nodes;  // GameWorld::registerProximityFade: effects the game hides when the player is close
+u32 g_fade_world = 0;
+// The game fades these effects (fog banks, light shafts) out by distance as the player walks into them,
+// over a band about two metres wide: at a run that is an instant. Here the fade is spread over time.
+// Each frame, after the game has set an effect's opacity (m3g::Node +0x130, 16.16; +0x12c = drawn at
+// all) and before it is drawn, the value actually used moves toward the game's value at a limited
+// speed, both ways.
+struct FadeState {
+    float shown = -1;  // opacity in use (-1: not started)
+    u32 wrote_alpha = 0xffffffffu;
+    u8 wrote_en = 0xff;
+    float target = 1;
+};
+std::unordered_map<u32, FadeState> g_fade_state;
+constexpr float kFadeSeconds = 1.4f;  // from fully shown to gone, or back
+
+// Position data of the fog banks' meshes (m3g::Mesh: VertexBuffer +0x160, its positions array +0x44,
+// that array's data +0x48): the renderer recognises their draws by it.
+std::vector<u32> g_fog_data;
+void note_fog_mesh(u32 node) {
+    if (cpu::symbolize(mem::r32(node)).find("Mesh") == std::string::npos) return;
+    u32 vb = mem::r32(node + 0x160);
+    u32 va = vb > 0x10000 ? mem::r32(vb + 0x44) : 0;
+    u32 data = va > 0x10000 ? mem::r32(va + 0x48) : 0;
+    if (data > 0x10000 && std::find(g_fog_data.begin(), g_fog_data.end(), data) == g_fog_data.end()) g_fog_data.push_back(data);
+}
+
+void smooth_fades(cpu::Ctx& c) {
+    if (c.reg(0) != g_fade_world || g_fade_nodes.empty()) return;
+    g_fog_data.clear();
+    static u32 last = 0;
+    u32 now = SDL_GetTicks();
+    float dt = last && now - last < 250 ? float(now - last) / 1000.0f : 0.0f;
+    last = now;
+    auto one = [&](u32 node) {
+        FadeState& st = g_fade_state[node];
+        u32 a = mem::r32(node + 0x130);
+        u8 en = mem::r8(node + 0x12c);
+        // what the game wants: its own value, unless what is there is still what was written last frame
+        if (a != st.wrote_alpha || en != st.wrote_en) st.target = en ? std::clamp(float(s32(a)) / 65536.0f, 0.0f, 1.0f) : 0.0f;
+        if (st.shown < 0) st.shown = st.target;
+        float step = dt / kFadeSeconds;
+        st.shown = st.shown < st.target ? std::min(st.target, st.shown + step) : std::max(st.target, st.shown - step);
+        st.wrote_alpha = u32(s32(st.shown * 65536.0f));
+        st.wrote_en = st.shown > 0.004f ? 1 : 0;
+        mem::w32(node + 0x130, st.wrote_alpha);
+        mem::w8(node + 0x12c, st.wrote_en);
+    };
+    for (u32 n : g_fade_nodes) {
+        if (cpu::symbolize(mem::r32(n)).find("Group") == std::string::npos) {
+            one(n);
+            note_fog_mesh(n);
+            continue;
+        }
+        u32 cb = mem::r32(n + 0x13c), ce = mem::r32(n + 0x140);
+        for (u32 q = cb; q < ce && q < cb + 4 * 32; q += 4)
+            if (u32 ch = mem::r32(q)) one(ch), note_fog_mesh(ch);
+    }
+}
+
+void on_reg_fade(cpu::Ctx& c) {
+    if (c.reg(0) != g_fade_world) g_fade_nodes.clear(), g_fade_state.clear(), g_fog_data.clear(), g_fade_world = c.reg(0);
+    if (c.reg(1)) g_fade_nodes.push_back(c.reg(1));
+}
 void on_reg_dir_flare(cpu::Ctx& c) { note_node(c.reg(0), c.reg(2), 0); }
 void on_reg_side_flare(cpu::Ctx& c) { note_node(c.reg(0), c.reg(1), 1); }
 void on_reg_animate(cpu::Ctx& c) { note_node(c.reg(0), c.reg(2), 2); }
@@ -219,6 +284,8 @@ void trace_nodes(objs::Vec3 p) {
 // whose colour follows the lockdown level (GameWorld +0x28c, 0 = normal .. 1 = lockdown).
 struct Fixture {
     float p[3];
+    float n[3] = {0, 0, 0};  // the lamp's plane normal (either side), or zero if unknown
+    float w = 1.0f;          // brightness (lamps merged into this one)
 };
 std::vector<Fixture> g_fixtures;
 u32 g_fixtures_world = 0;
@@ -245,6 +312,8 @@ void collect_fixtures(u32 node, int depth) {
     struct Cluster {
         float sum[3];
         int n;
+        float v[8][3];
+        int nv;
     };
     std::vector<Cluster> cl;
     for (u32 i = 0; i < count; i++) {
@@ -261,14 +330,33 @@ void collect_fixtures(u32 node, int depth) {
             }
         }
         if (!hit) {
-            cl.push_back({{0, 0, 0}, 0});
+            cl.push_back({{0, 0, 0}, 0, {}, 0});
             hit = &cl.back();
         }
         for (int r = 0; r < 3; r++) hit->sum[r] += w[r];
+        if (hit->nv < 8) {
+            for (int r = 0; r < 3; r++) hit->v[hit->nv][r] = w[r];
+            hit->nv++;
+        }
         hit->n++;
     }
-    for (const Cluster& c : cl)
-        if (g_fixtures.size() < 4000) g_fixtures.push_back({{c.sum[0] / float(c.n), c.sum[1] / float(c.n), c.sum[2] / float(c.n)}});
+    for (const Cluster& c : cl) {
+        if (g_fixtures.size() >= 4000) break;
+        Fixture f{{c.sum[0] / float(c.n), c.sum[1] / float(c.n), c.sum[2] / float(c.n)}};
+        // the lamp's plane: the largest cross product among its first vertices
+        float best = 0;
+        for (int i = 1; i < c.nv; i++)
+            for (int j = i + 1; j < c.nv; j++) {
+                float a[3], b[3];
+                for (int r = 0; r < 3; r++) a[r] = c.v[i][r] - c.v[0][r], b[r] = c.v[j][r] - c.v[0][r];
+                float x[3] = {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+                float l = std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+                if (l > best) best = l, f.n[0] = x[0], f.n[1] = x[1], f.n[2] = x[2];
+            }
+        if (best > 1e-6f)
+            for (float& x : f.n) x /= best;
+        g_fixtures.push_back(f);
+    }
 }
 
 void update_fixtures(u32 world) {
@@ -278,39 +366,22 @@ void update_fixtures(u32 world) {
     u32 qb = mem::r32(world + 0x228), qe = mem::r32(world + 0x22c);
     if (!qb || qe < qb || qe - qb > 4 * 2000) return;
     for (u32 q = qb; q < qe; q += 4) collect_fixtures(mem::r32(q), 0);
+    // lamps a hand apart (the two rows of one strip) become one light: fewer, steadier lights
+    size_t before = g_fixtures.size();
+    for (size_t i = 0; i < g_fixtures.size(); i++)
+        for (size_t j = i + 1; j < g_fixtures.size();) {
+            Fixture &a = g_fixtures[i], &b = g_fixtures[j];
+            float dx = a.p[0] - b.p[0], dy = a.p[1] - b.p[1], dz = a.p[2] - b.p[2];
+            if (dx * dx + dy * dy + dz * dz < 0.8f * 0.8f) {
+                for (int r = 0; r < 3; r++) a.p[r] = (a.p[r] * a.w + b.p[r]) / (a.w + 1.0f);
+                a.w += 1.0f;
+                g_fixtures.erase(g_fixtures.begin() + long(j));
+            } else {
+                j++;
+            }
+        }
+    LOGI("lights: %zu lamps merged into %zu lights", before, g_fixtures.size());
     LOGI("lights: %zu strip light fixtures in %u lockdown sections", g_fixtures.size(), (qe - qb) / 4);
-}
-
-// The fixtures within view distance of `at` as lights (world space, nearest first), coloured for the current
-// lockdown level.
-void fixture_lights(const float at[3], std::vector<Src>& out) {
-    u32 world = input::world();
-    if (!world || world != g_fixtures_world || g_fixtures.empty()) return;
-    float level = std::clamp(f32(world + 0x28c), 0.0f, 1.0f);
-    if (!std::isfinite(level)) level = 0;
-    static const float kNormal[3] = {0.34f, 0.38f, 0.42f}, kLockdown[3] = {0.95f, 0.10f, 0.07f};
-    float col[3];
-    for (int k = 0; k < 3; k++) col[k] = kNormal[k] + (kLockdown[k] - kNormal[k]) * level;
-    struct Near {
-        float d2;
-        const Fixture* f;
-    };
-    // Every fixture the camera could see is lit: its far plane is at 30 m, so the range reaches a light's
-    // radius past that and the fade at the very edge happens out of sight.
-    const float kRange = 34.0f;
-    std::vector<Near> nearest;
-    for (const Fixture& f : g_fixtures) {
-        float dx = f.p[0] - at[0], dy = f.p[1] - at[1], dz = f.p[2] - at[2];
-        float d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 < kRange * kRange) nearest.push_back({d2, &f});
-    }
-    std::sort(nearest.begin(), nearest.end(), [](const Near& a, const Near& b) { return a.d2 < b.d2; });
-    for (const Near& n : nearest) {
-        float k = std::clamp((kRange - std::sqrt(n.d2)) / 2.0f, 0.0f, 1.0f);
-        out.push_back({{n.f->p[0], n.f->p[1], n.f->p[2]}, {col[0] * k, col[1] * k, col[2] * k}, 3.2f, 0, 1.0f, 0});
-    }
-    static int logn = 0;
-    if (g_trace && (logn++ % 120) == 0) LOGI("[lights] strip lights: %zu near, lockdown level %.2f", nearest.size(), level);
 }
 
 // ---- the RIG on the player's back
@@ -370,13 +441,17 @@ void on_player_post_camera(cpu::Ctx& c) {
     static const float kVisor[3] = {0.2f, 0.32f, 0.5f};  // the visor slits are blue-white
     push(p.x + f.x * 0.42f, p.y + 0.72f, p.z + f.z * 0.42f, kVisor, 0.9f, 150.0f, 3);
 
-    // plasma saw: in the right hand, in front of the player, while the swing plays
     u32 now = SDL_GetTicks();
-    if (now < g_slash_until) {
-        float k = 0.8f + 0.2f * std::sin(float(now) * 0.05f);  // flicker
-        if (now - g_slash_flash < 120) k += 0.8f;
-        const float saw[3] = {0.45f * k, 0.9f * k, 1.0f * k};
-        push(p.x + f.x * 0.75f + f.z * 0.2f, p.y + 0.2f, p.z + f.z * 0.75f - f.x * 0.2f, saw, 2.6f, 120.0f, 4);
+    // plasma saw: the light sits on the glowing blade itself, where the renderer sees it drawn, and takes
+    // its colour; no blade on screen, no light
+    {
+        float gp[3], gc[3];
+        if (now < g_slash_until + 300 && render::player_glow(gp, gc)) {
+            float k = 0.85f + 0.15f * std::sin(float(now) * 0.05f);  // flicker
+            if (now - g_slash_flash < 120) k += 0.6f;
+            const float saw[3] = {gc[0] * k, gc[1] * k, gc[2] * k};
+            push(gp[0], gp[1], gp[2], saw, 2.4f, 100.0f, 4);
+        }
     }
 
     // navigation line: lights along the path it draws on the floor (LocatorMesh at +0x544, active flag
@@ -436,7 +511,7 @@ void eye_space(std::vector<render::Light>& out) {
         LOGI("[lights] %zu sources, camera %s eye %.2f %.2f %.2f target %.2f %.2f %.2f up %.2f %.2f %.2f; first at %.2f %.2f %.2f",
              g_src.size(), cam ? "ok" : "stale", e[0], e[1], e[2], t[0], t[1], t[2], up[0], up[1], up[2], g_src[0].p[0], g_src[0].p[1], g_src[0].p[2]);
     if (!cam) return;
-    std::vector<Src> fixed;  // (the strip lights go to the renderer at the start of the frame: fixtures_world)
+    std::vector<Src> fixed;  // (the fixtures go to the renderer at the start of the frame: fixtures_world)
     if (g_src.empty() && fixed.empty()) return;
     // right-handed look-at: the camera looks down -Z
     float f[3] = {t[0] - e[0], t[1] - e[1], t[2] - e[2]};
@@ -473,6 +548,37 @@ void eye_space(std::vector<render::Light>& out) {
     }
 }
 
+std::string debug_fade_nodes(float x, float y, float z) {
+    std::string out = std::to_string(g_fade_nodes.size()) + " proximity-fade nodes";
+    struct E {
+        float d;
+        std::string s;
+    };
+    std::vector<E> v;
+    for (u32 n : g_fade_nodes) {
+        float m[16];
+        if (!node_world(n, m)) continue;
+        float d = std::sqrt((m[12] - x) * (m[12] - x) + (m[13] - y) * (m[13] - y) + (m[14] - z) * (m[14] - z));
+        char b[160];
+        std::snprintf(b, sizeof b, " | %08x %s at %.2f %.2f %.2f (%.1f m) enabled %d alpha %08x shown %d", n, cpu::symbolize(mem::r32(n)).c_str(), m[12], m[13], m[14], d,
+                      mem::r8(n + 0x12c), mem::r32(n + 0x130), node_shown(n));
+        std::string line = b;
+        if (cpu::symbolize(mem::r32(n)).find("Group") != std::string::npos) {
+            u32 cb = mem::r32(n + 0x13c), ce = mem::r32(n + 0x140);
+            for (u32 q = cb; q < ce && q < cb + 24; q += 4) {
+                u32 ch = mem::r32(q);
+                char cbuf[96];
+                std::snprintf(cbuf, sizeof cbuf, " [child %08x %s en %d a %08x]", ch, cpu::symbolize(mem::r32(ch)).substr(11, 14).c_str(), mem::r8(ch + 0x12c), mem::r32(ch + 0x130));
+                line += cbuf;
+            }
+        }
+        v.push_back({d, line});
+    }
+    std::sort(v.begin(), v.end(), [](const E& a, const E& b) { return a.d < b.d; });
+    for (size_t i = 0; i < v.size() && i < 6; i++) out += v[i].s;
+    return out;
+}
+
 int debug_show_nodes(float x, float z, float radius) {
     int n = 0;
     for (const SceneNode& sn : g_nodes) {
@@ -490,15 +596,39 @@ int debug_show_nodes(float x, float z, float radius) {
     return n;
 }
 
+float lockdown_level() {
+    u32 world = input::world();
+    if (!world) return 0;
+    float level = f32(world + 0x28c);
+    return std::isfinite(level) ? std::clamp(level, 0.0f, 1.0f) : 0.0f;
+}
+
 void fixtures_world(const float at[3], std::vector<render::Light>& out) {
-    std::vector<Src> fixed;
-    fixture_lights(at, fixed);
-    for (const Src& fx : fixed) {
+    u32 world = input::world();
+    if (!world || world != g_fixtures_world) return;
+    float level = lockdown_level();
+    static const float kNormal[3] = {0.34f, 0.38f, 0.42f}, kLockdown[3] = {0.95f, 0.10f, 0.07f};
+    const float kRange = 34.0f;  // the camera's far plane is at 30 m
+    size_t first = out.size();
+    for (const Fixture& f : g_fixtures) {
+        float dx = f.p[0] - at[0], dy = f.p[1] - at[1], dz = f.p[2] - at[2], d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 >= kRange * kRange) continue;
+        float k = std::clamp((kRange - std::sqrt(d2)) / 2.0f, 0.0f, 1.0f) * std::min(1.6f, 0.75f + 0.25f * f.w);
         render::Light l;
-        for (int i = 0; i < 3; i++) l.wpos[i] = fx.p[i], l.color[i] = fx.c[i];
-        l.radius = fx.radius;
+        for (int i = 0; i < 3; i++) {
+            l.wpos[i] = f.p[i];
+            l.wdir[i] = f.n[i];
+            l.color[i] = (kNormal[i] + (kLockdown[i] - kNormal[i]) * level) * k;
+        }
+        l.radius = 3.2f;
         out.push_back(l);
     }
+    std::sort(out.begin() + long(first), out.end(), [&](const render::Light& a, const render::Light& b) {
+        auto d = [&](const render::Light& l) {
+            return (l.wpos[0] - at[0]) * (l.wpos[0] - at[0]) + (l.wpos[1] - at[1]) * (l.wpos[1] - at[1]) + (l.wpos[2] - at[2]) * (l.wpos[2] - at[2]);
+        };
+        return d(a) < d(b);
+    });
 }
 
 void debug_list(std::vector<DebugLight>& out) {
@@ -585,6 +715,8 @@ void install() {
         {"_ZN20GameObjectProjectile8onUpdateEi", "GameObjectProjectile::onUpdate", on_projectile},
         {"_ZN19GameObjectExplosive13reallyExplodeEv", "GameObjectExplosive::reallyExplode", on_explode},
         {"_ZN9GameWorld26registerNodeDirectionFlareEPK8CullNodePN3m3g4NodeEa", "GameWorld::registerNodeDirectionFlare", on_reg_dir_flare},
+        {"_ZN9GameWorld21registerProximityFadeEPN3m3g4NodeE", "GameWorld::registerProximityFade", on_reg_fade},
+        {"_ZN9GameWorld6renderERKN5eastl13intrusive_ptrIN3m3g8RendererEEE", "GameWorld::render", smooth_fades},
         {"_ZN9GameWorld21registerNodeSideFlareEPN3m3g4NodeE", "GameWorld::registerNodeSideFlare", on_reg_side_flare},
         {"_ZN9GameWorld19registerNodeAnimateEPK8CullNodePN3m3g4NodeE", "GameWorld::registerNodeAnimate", on_reg_animate},
         {"_ZN18GameObjectPlayable10startSlashEv", "GameObjectPlayable::startSlash", on_start_slash},
@@ -597,5 +729,7 @@ void install() {
         if (!a || !cpu::hook_entry(a, h.name, h.fn)) LOGW("lights: cannot hook %s", h.name);
     }
 }
+
+bool is_fog_vertices(u32 guest_addr) { return std::find(g_fog_data.begin(), g_fog_data.end(), guest_addr) != g_fog_data.end(); }
 
 }  // namespace lights

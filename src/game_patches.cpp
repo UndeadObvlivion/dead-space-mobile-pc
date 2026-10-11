@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <mutex>
 
 #include <SDL.h>
@@ -58,7 +59,7 @@ struct PortRow {
     int row;            // position on that page, from the top
 };
 const int kFpsLimits[5] = {60, 120, 144, 240, 0};  // Frame Rate Limit options (0 = unlimited)
-constexpr int kGamePages = 3, kPageGraphics = 4, kPageControls = 5;
+constexpr int kGamePages = 3, kPageGraphics = 4, kPageControls = 5, kPageController = 6;
 constexpr float kRowPitch = 37.0f, kRowTop = 19.0f, kRowScale = 0.8f;  // layout units (the game spaces its rows 60 apart)
 const std::vector<PortRow>& port_rows() {
     static const std::vector<PortRow> rows = [] {
@@ -71,6 +72,7 @@ const std::vector<PortRow>& port_rows() {
                                   {"SPECULAR", "Specular Highlights", false, -1, kPageGraphics, 0},
                                   {"SHADOWS", "Shadows", false, -1, kPageGraphics, 0},
                                   {"LIGHT_SHADOWS", "Light Shadows", false, -1, kPageGraphics, 0},
+                                  {"LIGHT_CONTRAST", "Light Contrast", false, -1, kPageGraphics, 0},
                                   {"VIGNETTE", "Vignette", false, -1, kPageGraphics, 0},
                                   {"VSYNC", "V-Sync", false, -1, kPageGraphics, 0},
                                   {"FPS_LIMIT", "Frame Rate Limit", false, -1, kPageGraphics, 0},
@@ -81,6 +83,11 @@ const std::vector<PortRow>& port_rows() {
         for (int i = 0; i < input::binding_count(); i++)
             r.push_back({"BIND_" + std::to_string(i), input::binding(i).label, false, i, kPageControls, 0});
         r.push_back({"RESET_BINDS", "Reset Controls", false, -1, kPageControls, 0});
+        // controller page: stick sensitivity, one row per remappable button, reset
+        r.push_back({"PAD_SENS", "Stick Sensitivity", true, -1, kPageController, 0});
+        for (int i = 0; i < input::pad_binding_count(); i++)
+            r.push_back({"PADBIND_" + std::to_string(i), input::binding(input::kPadBindBase + i).label, false, input::kPadBindBase + i, kPageController, 0});
+        r.push_back({"PAD_RESET", "Reset Controller", false, -1, kPageController, 0});
         int n[8] = {};
         n[kPageGraphics] = 1;  // (the first Graphics row is Anti-Aliasing, a widget of its own)
         for (auto& x : r) x.row = n[x.page]++;
@@ -88,7 +95,7 @@ const std::vector<PortRow>& port_rows() {
     }();
     return rows;
 }
-int page_count() { return kPageControls; }
+int page_count() { return kPageController; }
 int rows_on_page(int page) {
     int n = 0;
     for (auto& r : port_rows()) n += r.page == page;
@@ -98,8 +105,8 @@ int rows_on_page(int page) {
 // height of a category page's content, layout units
 float page_height(int page) { return kRowTop + kRowPitch * float(rows_on_page(page)) + 14.0f; }
 const char* page_title(int page) {
-    static const char* t[] = {"", "General", "Game", "Camera", "Graphics", "Controls"};
-    return page >= 1 && page <= 5 ? t[page] : "";
+    static const char* t[] = {"", "General", "Game", "Camera", "Graphics", "Controls", "Controller"};
+    return page >= 1 && page <= 6 ? t[page] : "";
 }
 std::string key_text_id(int code) { return "PORT_KEY_" + std::to_string(code); }
 
@@ -215,6 +222,36 @@ bool patch_layouts(sbin::Database& db) {
         break;
     }
 
+    // The tutorials' touch graphics (arrows, the hand, device pictures) are taken out: in every tutorial
+    // layout everything except the text box is hidden and moved far off screen. The text stays.
+    {
+        const int o_vis = db.field_offset(s_entity, "isVisible");
+        int hidden = 0;
+        for (const char* name : {"HUD_TUTORIAL_MOVE", "HUD_TUTORIAL_LOOK", "HUD_TUTORIAL_ROTATE", "HUD_TUTORIAL_SHAKE", "HUD_TUTORIAL_STASIS",
+                                 "HUD_TUTORIAL_KINESIS", "HUD_TUTORIAL_SWIPES", "HUD_TUTORIAL_SHOOT", "HUD_TUTORIAL_QUICKTURN", "HUD_TUTORIAL_RIG",
+                                 "HUD_TUTORIAL_MOVE_BUTTON", "HUD_TUTORIAL_MOVE_ARROWS", "HUD_TUTORIAL_LOOK_BUTTON", "HUD_TUTORIAL_SHOOT_BUTTON",
+                                 "HUD_TUTORIAL_KINESIS_BUTTON", "HUD_TUTORIAL_QUICKTURN_BUTTON", "HUD_TUTORIAL_RIG_BUTTON", "HUD_TUTORIAL_ROTATE_MAIN",
+                                 "HUD_TUTORIAL_SHAKE_MAIN", "HUD_TUTORIAL_ROTATE_ARROWS", "HUD_TUTORIAL_ROTATE_ICON", "HUD_TUTORIAL_SHAKE_ARROWS",
+                                 "HUD_TUTORIAL_SHAKE_ICON", "HUD_TUTORIAL_IPHONE_BASE"}) {
+            long l = find_layout(name);
+            if (l < 0) continue;
+            size_t arr = entities(size_t(l));
+            u32 n = db.array_count(arr);
+            std::vector<u8> d(db.body(arr), db.body(arr) + size_t(n) * esize);
+            for (u32 i = 0; i < n; i++) {
+                u8* e = &d[i * esize];
+                if (db.string(get<u16>(e + o_name)) == "TUTORIAL_TEXT") continue;
+                if (o_vis >= 0) put<u8>(e + o_vis, 0);
+                s32 v = get<s32>(e + o_verts);
+                if (v >= 0) put<s32>(e + o_verts, clone_array(size_t(v), 0, 100000.0f));
+                hidden++;
+            }
+            db.add_array(16, u16(s_entity), n, d);
+            db.replace_with_last(arr);
+        }
+        LOGI("menu patch: %d tutorial touch graphics hidden", hidden);
+    }
+
     // 3. place the rows in the main menu and pause menu options panes
     int added = 0;
     for (const char* pane : {"UI_OPTIONS_PANE", "HUD_OPTIONS_PANE"}) {
@@ -258,6 +295,9 @@ bool patch_layouts(sbin::Database& db) {
     return added > 0;
 }
 
+std::mutex g_pad_text_lock;
+std::set<std::string> g_pad_text_ids;
+std::map<std::string, u32> g_pad_text_ws;
 // Adds the new text ids to a language's string table.
 bool patch_strings(sbin::Database& db, const Lang& lang) {
     int s_table = db.find_struct("StringTable"), s_pair = db.find_struct("StringPair");
@@ -276,6 +316,77 @@ bool patch_strings(sbin::Database& db, const Lang& lang) {
             put<u16>(&e[size_t(o_text)], db.add_string(text));
             d.insert(d.end(), e.begin(), e.end());
         };
+        // English: the game's touch instructions reworded for keyboard and mouse, naming the keys bound
+        // when the game starts (a rebound key shows after a restart)
+        if (std::string(lang.dir) == "en-us")
+        for (int pad = 0; pad < 2; pad++) {
+            auto key = [pad](const char* action) { return input::action_label(action, pad != 0); };
+            const std::string fwd = key("move_forward"), back = key("move_back"), left = key("move_left"), right = key("move_right");
+            std::string move = fwd.size() == 1 && back.size() == 1 && left.size() == 1 && right.size() == 1 ? fwd + left + back + right
+                                                                                                                 : fwd + ", " + left + ", " + back + ", " + right;
+            if (pad) move = "the Left Stick";
+            const std::string look = pad ? "Use the Right Stick" : "Move the mouse";
+            const std::string aim = key("aim"), fire = key("fire"), use = key("interact"), alt = key("alt_fire"), rig = key("rig");
+            const std::pair<const char*, std::string> texts[] = {
+                {"TAP_TO_CONTINUE", pad ? "Press A to continue" : "Press any key to continue"},
+                // (the same words label the plasma saw prompt and the grab prompts: the melee key does both)
+                {"SWIPE", "Press " + key("melee")},
+                {"TAP", "Tap " + key("melee")},
+                {"LOADING_TIP_06", "Tap " + use + " rapidly if a Swarm attaches to you to kill them."},
+                {"SWIPE_HINT", pad ? "D-pad Left / Right for more hints" : "Left / Right arrow keys for more hints"},
+                {"TUTORIAL_MOVE_TEXT", "Use " + move + " to walk and strafe. Hold " + key("run") + " to run."},
+                {"TUTORIAL_LOOK_TEXT", look + " to look around."},
+                {"TUTORIAL_AIM_TEXT", "Hold " + aim + " to raise your weapon. " + look + " to aim at the power box. Press " + fire + " to fire."},
+                {"TUTORIAL_FIRE_TEXT", "Press " + fire + " with your weapon raised to fire. Target enemy's limbs to kill them quickly."},
+                {"TUTORIAL_MELEE_TEXT", "Get close to the Power Box, press " + use + " to open it and press " + key("melee") + " to swing your Plasma Saw."},
+                {"TUTORIAL_PLASMA_SAW_TEXT", "Press " + key("melee") + " to swing the Plasma Saw."},
+                {"TUTORIAL_STOMP_TEXT", "Get close to the stomp box and press " + key("stomp") + " to smash it open."},
+                {"TUTORIAL_QUICK_TURN_TEXT", "Press " + key("quick_turn") + " to quickly turn 180 degrees."},
+                {"TUTORIAL_RELOAD_TEXT", "Press " + key("reload") + " to reload weapon."},
+                {"TUTORIAL_STASIS_TEXT", "While aiming, press " + key("stasis") + " to fire a stasis blast at the door."},
+                {"TUTORIAL_KINESIS_TEXT", "Press " + use + " near an object to use kinesis. Aim and press " + fire + " to launch the object."},
+                {"TUTORIAL_LOCATOR_TEXT", "Press " + key("locator") + " to access your locator."},
+                {"TUTORIAL_WEAPON_SELECT_TEXT", std::string(pad ? "Use the D-pad" : "Press 1-4 or use the mouse wheel") + " to select a weapon. " + rig + " opens the RIG."},
+                {"TUTORIAL_ALT_FIRE_TEXT", "Outside Zero-G, aim and press " + alt + " to switch fire modes."},
+                {"TUTORIAL_ALT_FIRE_PC_TEXT", "Outside Zero-G, aim and press " + alt + " to switch fire modes."},
+                {"TUTORIAL_TILT_BUTTON", "Outside Zero-G, aim and press " + alt + " to switch fire modes."},
+                {"TUTORIAL_ZERO_G_JUMP_TEXT", "Aim at a walkable surface and press " + key("jump") + " to perform a Zero-G jump."},
+                {"TUTORIAL_BENCH_TEXT", "Approach the Bench and press " + use + " to access the upgrade menu. Upgrading your RIG and weapons with Power Nodes is vital!"},
+                {"TUTORIAL_STORE_TEXT", "Approach the Store and press " + use + " to go shopping. You can buy new suits, ammo and extra Power Nodes."},
+                {"TUTORIAL_CORER_TEXT", "Press " + fire + " to fire four sheets of supercharged plasma."},
+                {"TUTORIAL_CORER_BEAM_TEXT", look + " to direct the concentrated plasma beam."},
+                {"TUTORIAL_REMOTE_SAW_TEXT", look + " to steer the remote saw"},
+                {"TUTORIAL_SAW_SHOT_TEXT", "Press " + fire + " to fire a powerful high velocity saw blade."},
+                {"LOADING_TIP_02", "Outside Zero-G, aim and press " + alt + " to switch fire modes."},
+                {"LOADING_TIP_06", "Press " + use + " rapidly if a Swarm attaches to you to kill them."},
+                {"LOADING_TIP_07", "Press " + use + " near an object to use kinesis. Aim and press " + fire + " to launch the object."},
+                {"LOADING_TIP_08", "Press " + key("locator") + " to access your locator."},
+                {"LOADING_TIP_09", "While steering the Ripper's Remote Saw you can press " + fire + " at any time to launch the saw straight ahead."},
+                {"LOADING_TIP_12", "Press " + key("quick_turn") + " to quickly turn 180 degrees."},
+                {"LOADING_TIP_13", "Press " + key("reload") + " to reload your weapon."},
+                {"LOADING_TIP_14", look + " to steer the Corer's secondary fire beam attack."},
+                {"LOADING_TIP_15", "When using the Ripper's secondary fire, press " + fire + " to fire a powerful high velocity saw blade."},
+                {"LOADING_TIP_16", "Press " + key("stasis") + " while aiming to fire a stasis blast. Stasis slows down enemies dramatically for a short period of time."},
+                {"LOADING_TIP_17", std::string(pad ? "Use the D-pad" : "Press 1-4 or use the mouse wheel") + " to select a weapon."},
+                {"LOADING_TIP_18", "In Zero-G, aim at a walkable surface and press " + key("jump") + " to jump."},
+            };
+            int changed = 0;
+            if (pad) {
+                std::lock_guard lk(g_pad_text_lock);
+                for (auto& t : texts) {
+                    add(std::string(t.first) + "_PAD", t.second);
+                    g_pad_text_ids.insert(t.first);
+                    changed++;
+                }
+            }
+            for (u32 k = 0; k < n && !pad; k++) {
+                u8* e = &d[size_t(k) * stride];
+                std::string id = db.string(get<u16>(e + o_id));
+                for (auto& t : texts)
+                    if (id == t.first) put<u16>(e + o_text, db.add_string(t.second)), changed++;
+            }
+            LOGI("strings: %d touch instructions reworded for %s", changed, pad ? "a controller" : "keyboard and mouse");
+        }
         add("OPTIONS_ANTI_ALIASING", lang.label);
         add("AA_OFF", lang.off);
         add("AA_2X", "2x");
@@ -284,7 +395,7 @@ bool patch_strings(sbin::Database& db, const Lang& lang) {
         // port rows (English only)
         for (auto& r : port_rows()) add("OPTIONS_PORT_" + r.key, r.label);
         for (int code : input::bindable_codes()) add(key_text_id(code), input::code_name(code));
-        add("PORT_PRESS_KEY", "Press a key...");
+        add("PORT_PRESS_KEY", "Press...");
         add("PORT_DASH", "-");
         add("PORT_RESET", "Reset");
         add("PORT_LEGACY", "Legacy");
@@ -303,6 +414,61 @@ bool patch_strings(sbin::Database& db, const Lang& lang) {
         return true;
     }
     return false;
+}
+
+// Text ids that have a controller wording (id + "_PAD" in the string table). While a controller is the
+// device in use, a lookup of one of them is answered with the controller wording.
+void on_get_string(cpu::Ctx& c) {
+    if (!input::using_pad()) return;
+    u32 ws = c.reg(1);
+    if (ws < 0x10000) return;
+    u32 b = mem::r32(ws), e = mem::r32(ws + 4);
+    if (b < 0x10000 || e <= b || e - b > 96) return;
+    std::string id;
+    for (u32 p = b; p < e; p += 2) id += char(mem::r16(p));
+    u32 g = 0;
+    {
+        std::lock_guard lk(g_pad_text_lock);
+        if (!g_pad_text_ids.count(id)) return;
+        g = g_pad_text_ws[id];
+    }
+    if (!g) {
+        g = guest::wstring(id + "_PAD");
+        std::lock_guard lk(g_pad_text_lock);
+        g_pad_text_ws[id] = g;
+    }
+    c.set_reg(1, g);
+}
+
+// The tutorial box keeps the text it was given when it opened. Its last title / text ids are remembered,
+// and when the device in use changes the box is given them again, so it shows the other wording at once.
+u32 g_tut = 0, g_tut_vt = 0, fn_set_tut = 0;
+std::string g_tut_title, g_tut_text;
+std::string read_wstring(u32 ws) {
+    std::string out;
+    if (ws < 0x10000) return out;
+    u32 b = mem::r32(ws), e = mem::r32(ws + 4);
+    if (b < 0x10000 || e <= b || e - b > 200) return out;
+    for (u32 p = b; p < e; p += 2) out += char(mem::r16(p));
+    return out;
+}
+void on_set_tutorial_text(cpu::Ctx& c) {
+    g_tut = c.reg(0);
+    g_tut_vt = mem::r32(g_tut);
+    g_tut_title = read_wstring(c.reg(1));
+    g_tut_text = read_wstring(c.reg(2));
+}
+void refresh_tutorial_text() {
+    static int last = -1;
+    int pad = input::using_pad() ? 1 : 0;
+    if (pad == last) return;
+    bool first = last < 0;
+    last = pad;
+    if (first || !g_tut || !fn_set_tut || g_tut_text.empty()) return;
+    input::run_on_game_thread([t = g_tut, vt = g_tut_vt, title = g_tut_title, text = g_tut_text](unsigned) {
+        if (mem::r32(t) != vt) return;  // the tutorial object is gone
+        cpu::call(fn_set_tut, {t, guest::wstring(title), guest::wstring(text)});
+    });
 }
 
 std::mutex g_asset_lock;
@@ -413,15 +579,21 @@ void on_panel_init(cpu::Ctx& c) {
         auto& pw = g_port[i];
         pw.w = add_widget(panel, r.slider ? fn_add_slider : fn_add_toggle, "BTN_PORT_" + r.key);
         if (!pw.w) continue;
-        if (r.key == "MOUSE_SENS") {
+        if (r.key == "PAD_SENS") {
+            pw.shown = std::clamp(settings::get_int("pad_sensitivity", 100), kSensMin, kSensMax);
+            float v = float(pw.shown - kSensMin) / float(kSensMax - kSensMin);
+            u32 bits;
+            std::memcpy(&bits, &v, 4);
+            cpu::call(fn_set_pct, {pw.w, bits});
+        } else if (r.key == "MOUSE_SENS") {
             pw.shown = mouse_sens();
             float v = float(pw.shown - kSensMin) / float(kSensMax - kSensMin);
             u32 bits;
             std::memcpy(&bits, &v, 4);
             cpu::call(fn_set_pct, {pw.w, bits});
-        } else if (r.key == "BLOOM" || r.key == "SHARPEN" || r.key == "AO" || r.key == "DLIGHTS" || r.key == "SPECULAR" || r.key == "SHADOWS") {  // native renderer only
+        } else if (r.key == "BLOOM" || r.key == "SHARPEN" || r.key == "AO" || r.key == "DLIGHTS" || r.key == "SPECULAR" || r.key == "SHADOWS" || r.key == "LIGHT_CONTRAST") {  // native renderer only
             set_options(pw.w, {"AA_OFF", "PORT_LOW", "PORT_MEDIUM", "PORT_HIGH"});
-            pw.shown = r.key == "BLOOM" ? render::bloom() : r.key == "AO" ? render::ao() : r.key == "DLIGHTS" ? render::lights_level() : r.key == "SPECULAR" ? render::specular() : r.key == "SHADOWS" ? render::shadows() : render::sharpen();
+            pw.shown = r.key == "BLOOM" ? render::bloom() : r.key == "AO" ? render::ao() : r.key == "DLIGHTS" ? render::lights_level() : r.key == "SPECULAR" ? render::specular() : r.key == "SHADOWS" ? render::shadows() : r.key == "LIGHT_CONTRAST" ? render::env_light() : render::sharpen();
             select(pw.w, pw.shown);
         } else if (r.key == "FPS_LIMIT") {
             set_options(pw.w, {"PORT_FPS_60", "PORT_FPS_120", "PORT_FPS_144", "PORT_FPS_240", "PORT_FPS_OFF"});
@@ -495,7 +667,7 @@ void poll_port_rows() {
             int pct = kSensMin + int(std::lround(std::clamp(v, 0.0f, 1.0f) * float(kSensMax - kSensMin)));
             if (pct != pw.shown) {
                 pw.shown = pct;
-                settings::set_int("mouse_sensitivity", pct);
+                settings::set_int(r.key == "PAD_SENS" ? "pad_sensitivity" : "mouse_sensitivity", pct);
             }
             continue;
         }
@@ -512,6 +684,9 @@ void poll_port_rows() {
         } else if (r.key == "SHARPEN") {
             render::set_sharpen(idx);
             settings::set_int("sharpen", render::sharpen());
+        } else if (r.key == "LIGHT_CONTRAST") {
+            render::set_env_light(idx);
+            settings::set_int("light_contrast", render::env_light());
         } else if (r.key == "VSYNC") {
             settings::set_int("vsync", idx ? 1 : 0);
             SDL_GL_SetSwapInterval(idx ? 1 : 0);
@@ -552,6 +727,12 @@ void poll_port_rows() {
             } else if (idx == 0 && capturing) {
                 input::begin_capture(-1);  // arrow pressed again: cancel
             }
+        } else if (idx == 1 && r.key == "PAD_RESET") {
+            input::reset_pad_bindings();
+            refresh_bindings();
+            select(pw.w, 0);
+            pw.shown = 0;
+            LOGI("options: controller buttons reset to defaults");
         } else if (idx == 1) {  // reset controls
             input::reset_bindings();
             refresh_bindings();
@@ -585,6 +766,7 @@ void on_panel_width(cpu::Ctx& c) {
 
 // OptionsWindow::onEvent while not already snapping (+0xbc mode 0): the game's logic for any
 // page count. A drag of more than 49 units past the current page snaps to the next/previous.
+std::atomic<u32> g_loading_wait_ticks{0};  // LayerLoadingWait seen updating
 u32 g_window = 0, g_window_ticks = 0;  // options window seen recently (its events run every frame)
 int g_cur_page = 1;                    // page the window is on
 u32 g_label_str = 0;                   // the page label's format string (guest wide string, 48 chars)
@@ -854,6 +1036,7 @@ void set_level_override(const std::string& id) { g_level_override = id; }
 
 bool options_page(int dir) { return window_open() && turn_page(g_window, dir); }
 bool options_open() { return window_open(); }
+bool loading_wait() { return g_loading_wait_ticks && SDL_GetTicks() - g_loading_wait_ticks < 200; }
 
 // Mouse wheel over the options window: scrolls a category page.
 bool options_wheel(int dy) {
@@ -864,9 +1047,9 @@ bool options_wheel(int dy) {
     u32 bits = mem::r32(rect + 12);
     std::memcpy(&wh, &bits, 4);
     int lo = -std::max(0, int(page_height(g_cur_page) - wh));
-    int y = std::clamp(s32(mem::r32(g_window + 0xa0)) + dy * int(kRowPitch), lo, 0);
+    int old = s32(mem::r32(g_window + 0xa0)), y = std::clamp(old + dy * int(kRowPitch), lo, 0);
     mem::w32(g_window + 0xa0, u32(y));
-    return true;
+    return y != old;  // false at either end
 }
 
 bool options_click(float x, float y) {
@@ -927,6 +1110,14 @@ void install() {
     cpu::hook_entry(init, "OptionsPanel::init", on_panel_init);
     cpu::hook_entry(del, "OptionsPanel::~OptionsPanel", on_panel_delete);
     install_paging();
+    fn_set_tut = elf::find("_ZN12TutorialAnim15setTutorialTextERKN5eastl12basic_stringIwN2im20StringEASTLAllocatorEEES6_");
+    if (fn_set_tut) cpu::hook_entry(fn_set_tut, "TutorialAnim::setTutorialText", on_set_tutorial_text);
+    if (u32 f = elf::find("_ZNK2im11StringTable17getStringIfExistsERKN5eastl12basic_stringIwNS_20StringEASTLAllocatorEEERS4_")) {
+        if (!cpu::hook_entry(f, "im::StringTable::getStringIfExists", on_get_string)) LOGW("controller prompts: cannot hook the text lookup");
+    }
+    // the loading screen that waits for a tap: noted while it runs, so any key can stand in for the tap
+    if (u32 f = elf::find("_ZN16LayerLoadingWait6updateEi"))
+        cpu::hook_entry(f, "LayerLoadingWait::update", [](cpu::Ctx&) { g_loading_wait_ticks = SDL_GetTicks(); });
     if (u32 f = elf::find("_ZN20DementiaDoppleganger25onPlayerSetWorldTransformEv"))
         cpu::hook_entry(f, "DementiaDoppleganger::onPlayerSetWorldTransform", on_doppleganger_follow);
     // PortalCulling::updateViewCulling, after its updateCurrentSector call (this exact build)
@@ -958,6 +1149,7 @@ void draw_scrollbar() {
 }
 
 void frame() {
+    refresh_tutorial_text();
     draw_scrollbar();
     if (!g_selector) return;
     if (mem::r32(g_panel) != g_panel_vtable) {  // panel went away without us noticing

@@ -53,13 +53,14 @@ highlight). The arrows beside //Options at the top of the Options screen turn it
 | F8 | switch renderer (legacy / native) |
 
 These are the default bindings. The **Options menu** (title screen or pause menu) has five pages,
-named in its header; the last two are the port's and scroll vertically (mouse wheel or drag; a bar at
-the right shows the position), with smaller rows than the game's own pages:
+named in its header; the last three (Graphics, Controls, Controller) are the port's and scroll vertically (mouse wheel, drag, or just
+moving up / down past the last visible row with the keyboard; a bar at the right shows the position),
+with smaller rows than the game's own pages. Turning a page with the keyboard highlights its first row.
 - **General**, **Game**, **Camera**: the game's own options
 - **Graphics**: **Anti-Aliasing** (MSAA Off/2x/4x/8x), **Renderer** (Legacy / Native), then, for the native renderer (see Rendering below):
   **Texture Filtering** (Off, 2x-16x anisotropic), **Bloom**, **Sharpening**, **Ambient Occlusion**,
   **Dynamic Lights**, **Specular Highlights**, **Shadows** (Off/Low/Medium/High each),
-  **Light Shadows** and **Vignette** (No/Yes); **V-Sync** (No/Yes, on by default; with it on, the
+  **Light Shadows** (No/Yes), **Light Contrast** (Off/Low/Medium/High) and **Vignette** (No/Yes); **V-Sync** (No/Yes, on by default; with it on, the
   monitor's refresh rate is the ceiling); **Frame Rate Limit** (60 / 120 / 144 / 240 / Unlimited,
   default 60; rates above 60 are untested beyond walking speed) and **Show FPS** (No/Yes, off by default)
 - **Controls**: **Mouse Sensitivity** (bar, 10-300%), **Mouse Smoothing**, **Free Look (Standing)**,
@@ -75,10 +76,67 @@ to face the camera. The game's own Look Sensitivity (Camera page) multiplies on 
 changes nothing.
 
 All of these are saved in `userdata/port_settings.ini` (`msaa`, `mouse_sensitivity`,
-`mouse_smoothing`, `free_look`, `renderer`, `anisotropy`, `reversed_depth`, `bloom`, `sharpen`, `ambient_occlusion`, `dynamic_lights`, `specular`, `shadows`, `light_shadows`, `vignette`, `vsync`, `show_fps`, `fps_limit`, `bind_<control>`; key names as SDL spells them, e.g. `Left Shift`).
+`mouse_smoothing`, `free_look`, `renderer`, `anisotropy`, `reversed_depth`, `bloom`, `sharpen`, `ambient_occlusion`, `dynamic_lights`, `specular`, `shadows`, `light_shadows`, `light_contrast`, `vignette`, `vsync`, `show_fps`, `fps_limit`, `bind_<control>`; key names as SDL spells them, e.g. `Left Shift`).
 
 Options: `--msaa N`, `--width W --height H` (game resolution, default = desktop resolution), `--fullscreen` (borderless),
 `--fps N` (frame cap for this run, 0 = off; overrides the Frame Rate Limit setting), `--verbose`, `--log FILE`.
+
+Touch instructions are reworded for keyboard and mouse (English only): tutorial boxes and loading
+hints name the keys bound when the game starts, and the tutorials' touch graphics (arrows, hand, device
+pictures) are removed from the layouts, leaving the text box. On the loading screen that waits for
+input ("Press any key to continue"), any key or mouse button continues and the left / right arrow keys
+page through the hints.
+
+### Controller
+Any controller SDL recognises works (plug in at any time). Default layout, after the Dead Space remake:
+
+| Input | Action |
+|---|---|
+| Left stick / Right stick | move / look and aim |
+| LB (hold) or L3 (click) | run; the click keeps running until the stick is let go or the weapon is raised |
+| LT / RT | aim / fire (melee swing while not aiming) |
+| RB | alt fire while aiming, stomp otherwise |
+| A | interact, kinesis; break free of a grab |
+| X / Y | reload / stasis |
+| B | quick turn; zero-G jump while aiming |
+| D-pad | the four weapons |
+| R3 | navigation line |
+| Back / Start | RIG / pause |
+
+In menus the D-pad or left stick moves the highlight, A confirms, B or Start goes back. The **Controller**
+page of the Options menu has the camera stick sensitivity (10-300%) and one row per button (press the
+row's arrow, then the button; Start cannot be bound; two actions may share a button when one applies
+only while aiming). Settings: `pad_sensitivity`, `padbind_<action>`.
+
+Light bar: on a DualSense or DualShock 4 (any controller with an RGB light) the light shows the RIG's
+health colour: blue above half health, yellow down to a quarter, red below that and when dead; blue
+outside gameplay.
+
+Prompts follow the device last used: tutorial boxes, loading hints and the grab prompt name controller
+buttons after any controller input and keys again after any key press, mouse click or mouse movement
+(an open tutorial box is rewritten on the spot). Button names are Xbox style on every controller.
+
+Power node locks: using one opens a small dialog. While it is up the mouse is free and the menu keys
+or the controller work on its buttons (first press highlights, Space / Enter / A confirms).
+
+Bench and store: while either is open the game is a menu, not gameplay: the camera does not move, the
+mouse is free, and the menu keys or the controller work on it (W/A/S/D or arrows / D-pad or left stick,
+Space / Enter / A to confirm, Esc / B to go back). The first press highlights the top-left control.
+Moving onto an entry of the store's list or the bench's weapon row selects it (its details show) and the
+list scrolls to follow; confirm on the selected entry is the same as Purchase / Upgrade. On the bench's
+upgrade grid the highlight moves from node to node, confirm puts a power node in, and Purchase applies.
+
+Grabs: when a necromorph grabs the player the game asks for touch gestures (swipe along an arrow, tap
+repeatedly; swarms are tapped off one by one). With the port, the Melee key, the Interact key or Fire
+each make whatever move the struggle is waiting for, and a prompt near the bottom of the screen shows
+`PRESS [ key ]` or a blinking `TAP [ key ]` (it names the Melee key). The game's own "Swipe" / "Tap"
+labels read "Press <key>" / "Tap <key>" (English).
+
+Fog banks and light shafts: the game fades these effects out by distance as the player walks into them,
+over a band about two metres wide, which at a run looks like an instant cut. The port spreads the change
+over time (about 1.4 s from fully shown to gone, and the same coming back): each frame, after the game
+has set an effect's opacity and before it is drawn, the opacity actually used moves toward the game's
+value at a limited speed (src/lights.cpp, `smooth_fades`).
 
 The game's habit of showing the navigation line by itself when the player stands idle (which also
 tilts the camera down) is patched out; the line only appears on its key.
@@ -143,17 +201,52 @@ Enhancements on the native path:
   player pushes the shadow away from itself and adds to its strength (eased over ~120 ms); with no
   light near, a faint shadow falls almost straight down. The option level scales the strength. Only with the gameplay camera.
   Dev: `shadows N debug` tints shadowed pixels red and logs the caster count.
-- **Light shadows** (`light_shadows`, default 1): character and prop shadows come from the lights
-  themselves. Up to 16 lights get a real shadow map (a 1024x1024 tile of one atlas): every spotlight
-  (alarm lamps, ceiling fans), then the fixtures nearest the player. A fixture's map looks from the
-  light toward the player, so whether the light is on the ceiling, a wall or the floor, the player's
-  shadow falls on the far side of it. Spotlight tiles take every opaque mesh; fixture tiles take only
-  things that move (characters, props, doors), because the level's own shadows from its fixtures are
-  already painted in. Because the fixtures' light is already painted into the level's textures, a blocked fixture
-  also darkens the scene there, by the blocked share of the fixtures reaching that pixel: shadows are
-  darker where one light dominates and fade where others fill in. The overhead shadow map of
-  **Shadows** is then only a faint contact shadow. Short-lived lights (shots, impacts, RIG glow) use a
-  screen-space trace instead. Dev: `lightshadows 1 N` shows what light N can see; `lightshade 0-1`.
+- **Light shadows** (`light_shadows`, default 1): every light that stays in the world (fixtures, lamps,
+  panel glows, fans, beacons) has an identity, a fixed position and a fixed facing. The lights near the
+  player each own a shadow map (24 tiles of 1024x1024 in one atlas) for as long as they stay near: a
+  light gets a map within 14 m, keeps it up to 20 m, and only gives it up to a light that is at least
+  4 m closer. A lamp's map looks out of the lamp toward the open space around it (found once by casting
+  rays through the still scene) and covers 150 degrees; spotlights look along their cone.
+  The **still scene** is kept in world space: every mesh that has stayed exactly in place for a few
+  frames is copied into it the first time it is drawn (and taken out again if it starts to move, like a
+  door). Each map draws the still scene once and keeps that depth in a second atlas; each frame the map
+  starts from the kept depth and only things that move are drawn into it. So shadows do not depend on
+  where the camera looks or where the player stands, and do not change from frame to frame. Beacons
+  turn, so their maps are drawn afresh each frame. Because the fixtures' light is already painted into
+  the level, a blocked fixture darkens the scene there by the blocked share of the fixtures reaching
+  that pixel (90% at most; characters 40%). Short-lived lights (shots, impacts, RIG glow) use a
+  screen-space trace instead. Lamps less than 0.8 m apart are one light.
+  Dev: `shadows 2 debug` logs map and still-scene counts, `lightshadows 1 N`, `lightshade 0-1`,
+  `probe X Y Z R` lists the lights and maps near a point.
+- **Light Contrast** (`light_contrast`, 0-3, default 2 = Medium): the environment light. The game's
+  painted lighting cannot react to anything, so it is turned down to a base level (100 / 85 / 70 /
+  55%) on the level, props and characters alike, and the added lights bring their surroundings back
+  up. Lamp faces and other bright pixels are left alone. Needs Dynamic Lights.
+- **Player glows**: a glowing effect drawn at the player (the plasma saw's blade during a swing) gets
+  a light exactly where it is drawn, in its own colour, for as long as it is drawn.
+- **World tints**: the red alarm lighting and the hallucinations' blackouts (fade to black, then a dim
+  grey a0a0a0 room) tint the level through the GL light-model colour. The renderer takes the colour that
+  most of a frame's geometry is drawn with as the world tint (single objects such as an orange door lock
+  have their own and are outvoted), tints the added point lights and highlights with it, and measures
+  "bright pixel" thresholds relative to it, so a tinted or blacked-out room keeps its colour and darkness.
+  `tools/tinttour.sh` and `tools/tintcmp.py` compare forced tints (dev command `tint RRGGBB AMOUNT`,
+  `tint off`) between the legacy and native renderers.
+- **Fog is not lit as a surface**: the level's fog banks are drawn over the finished scene, and the
+  lighting pass only knows the wall behind them. Their draws (recognised by their vertex data) also
+  write their coverage to a third colour target, and what the lights, shadows and occlusion did to a
+  pixel is applied only to the share the fog leaves open. Dev: `fogveil 0|1`.
+- **Headroom**: added light only fills the headroom a pixel has left. The gain is scaled by
+  (1 - the game's own colour) squared, capped at 0.45, and the result never passes 0.92 unless the game
+  itself drew it brighter. Dark corridors take the lights fully; the white decks of chapter 1's later
+  levels, which the game already lights to near white, gain almost nothing instead of burning out. A
+  mesh in which more than a fifth of the triangles (or more than 40) look like lamps is a bright wall,
+  not a row of lamps, and gives none. `tools/lighttour.sh LEVEL N` visits N doors of a level and prints
+  the share of clipped pixels with the added lighting off and on (`tools/blowout.py`).
+- **Solid cables, level lamps**: blended meshes that are really solid objects (the hanging cable
+  bundles) are drawn opaque, so they take light and cast shadows. Small bright patches of the level's
+  textures are taken as lamps and get a point light where the lockdown meshes give none. Only meshes of
+  the still scene that are at least 2.5 m across are searched (the level's structure, not weapons, props
+  or pickups), and a lamp goes away with its mesh. This finds only some of the lamps so far.
 - **Ceiling fan lights** (part of Dynamic Lights): the game fakes light falling through its ceiling
   fans with turning shaft meshes and a floor texture. Each fan gets a real spotlight pointing down from
   it, as wide as the shafts, shaded by three blades and a hub that turn with the shafts, so the blade
@@ -223,7 +316,18 @@ around the spot where the game shows their tap icon. E uses the one object whose
 box nearest your line of sight, and nothing else. With nothing in reach, E grabs a kinesis target
 within ~9 m straight ahead. Plain shoot switches are not used with E (shoot them); covered ones are opened with E.
 
-### Dev mode (testing)
+### Dev mode
+Dev command `rich [CREDITS] [NODES]` fills the wallet (default 9999999 credits, 99 power nodes) for store
+and bench tests; level 01_gov_03 has both next to each other (`goto Store 0`, `goto Bench 0`, `press e`).
+
+`tools/starttest.py N SECONDS [-- game args]` starts the dev build N times on a throwaway profile and
+reports any start that exits by itself, with its exit code. Access violations outside guest memory are
+logged at first chance (`access violation (first chance)` plus a host stack).
+
+`tools/dev.py status` says whether the dev instance is running and, if it has exited, shows the crash
+report from its log. `send` and `status` exit with code 3 as soon as the game is not running.
+`tools/grabtest.sh ENEMY DIST` runs a grab test (slasher, lurker, swarm).
+ (testing)
 `deadspace.exe --dev DIR` reads commands from `DIR/cmd.txt` while running; `tools/dev.py` drives
 it (`start`, `send "cmd; cmd"`, `stop`). Commands are listed at the top of `src/devmode.cpp`
 (teleport, goto an object, press keys, screenshots, `look`, `audit`, `god`...).

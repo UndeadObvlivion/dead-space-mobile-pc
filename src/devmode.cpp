@@ -1,3 +1,4 @@
+#include <algorithm>
 // Dev mode command processor. Commands (one per line, '#' comments, ';' also separates):
 //   wait N                 let N frames pass
 //   key NAME 1|0           SDL key name (W, Left Shift, E...)    press NAME [frames]
@@ -197,6 +198,17 @@ void run(const std::string& line) {
         if (a.size() > 3) render::set_ao_tuning(std::stof(arg(3)), std::stof(arg(4, "0")));
     } else if (c == "lighttrace") {  // lighttrace 1|0: log light source events
         lights::set_trace(arg(1, "1") == "1");
+    } else if (c == "fogveil") {  // fogveil 1|0: keep the added lighting off the fog banks (default 1)
+        out(fmt("fog veil %s, %d fog draws", arg(1, "1").c_str(), render::set_fog_veil(std::stoi(arg(1, "1")))));
+    } else if (c == "rich") {  // rich [CREDITS] [NODES]: fill the wallet (Inventory at player+0x530: nodes +0x14, credits +0x18)
+        u32 credits = u32(std::stoul(arg(1, "9999999"))), nodes = u32(std::stoul(arg(2, "99")));
+        game_job([credits, nodes](u32 pl) {
+            u32 inv = mem::r32(pl + 0x530);
+            if (inv < 0x10000) return out("no inventory");
+            mem::w32(inv + 0x14, nodes);
+            mem::w32(inv + 0x18, credits);
+            out(fmt("credits %u, power nodes %u", credits, nodes));
+        });
     } else if (c == "health") {  // health N: set the player's health
         float v = std::stof(arg(1, "100"));
         game_job([v](u32 pl) {
@@ -212,6 +224,13 @@ void run(const std::string& line) {
         render::set_light_shadows(arg(1, "1") != "0");
         render::set_tile_debug(std::stoi(arg(2, "0")));  // lightshadows 1 N: show light N's shadow map result
     } else if (c == "tint") {  // tint RRGGBB [AMOUNT]: GameWorld::setTintOverride (the alarm-light tint), e.g. tint ff2020 1
+        if (arg(1) == "off") {
+            game_job([](u32) {
+                cpu::call(elf::find("_ZN9GameWorld17clearTintOverrideEv"), {input::world()});
+                out("tint cleared");
+            });
+            return;
+        }
         u32 col = u32(std::stoul(arg(1, "ff2020"), nullptr, 16));
         float amt = std::stof(arg(2, "1"));
         game_job([col, amt](u32) {
@@ -224,6 +243,33 @@ void run(const std::string& line) {
         bool on = arg(1, "1") == "1";
         cpu::set_gl_trace(on);
         if (on) render::trace_next_frame();
+    } else if (c == "pad") {  // pad BUTTON 1|0 / pad AXIS VALUE: controller input (a b x y back start l3 r3 lb rb up down left right lt rt; lx ly rx ry -1..1)
+        static const char* btn[] = {"a", "b", "x", "y", "back", "guide", "start", "l3", "r3", "lb", "rb", "up", "down", "left", "right"};
+        static const char* axes[] = {"lx", "ly", "rx", "ry", "lt", "rt"};
+        std::string n = arg(1);
+        SDL_Event e{};
+        for (int i = 0; i < 15; i++)
+            if (n == btn[i]) {
+                e.type = arg(2, "1") == "1" ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+                e.cbutton.button = Uint8(i);
+            }
+        for (int i = 0; i < 6; i++)
+            if (n == axes[i]) {
+                e.type = SDL_CONTROLLERAXISMOTION;
+                e.caxis.axis = Uint8(i);
+                e.caxis.value = Sint16(std::clamp(std::stof(arg(2, "1")), -1.0f, 1.0f) * 32767.0f);
+            }
+        if (e.type) SDL_PushEvent(&e);
+        else out("error: unknown controller input " + n);
+    } else if (c == "usingpad") {
+        out(input::using_pad() ? "controller" : "keyboard");
+    } else if (c == "grab") {  // grab: the player's grab state
+        out("grab state " + std::to_string(input::grab()));
+    } else if (c == "fadenodes") {  // nearest proximity-fade effects (fog) and their state
+        game_job([](u32 pl) {
+            objs::Vec3 p = objs::pos(pl);
+            out(lights::debug_fade_nodes(p.x, p.y, p.z));
+        });
     } else if (c == "shownodes") {  // shownodes X Z [RADIUS]: un-hide animated level nodes there (e.g. alarm beacons)
         float x = std::stof(arg(1)), z = std::stof(arg(2)), r = std::stof(arg(3, "1"));
         game_job([=](u32) { out("shown " + std::to_string(lights::debug_show_nodes(x, z, r))); });
@@ -235,6 +281,12 @@ void run(const std::string& line) {
         render::set_glow_gain(std::stof(arg(1, "1.3")));
     } else if (c == "vignette") {  // vignette 1|0
         render::set_vignette(arg(1, "1") != "0");
+    } else if (c == "envshadows") {  // envshadows 1|0: level geometry casts shadows from the fixtures
+        render::set_env_shadows(arg(1, "1") != "0");
+    } else if (c == "probe") {  // probe X Y Z R: log meshes and lights near a point (R 0 = stop)
+        render::probe(std::stof(arg(1, "0")), std::stof(arg(2, "0")), std::stof(arg(3, "0")), std::stof(arg(4, "0")));
+    } else if (c == "envlight") {  // envlight 0-3: light contrast (how far the painted lighting is turned down)
+        render::set_env_light(std::stoi(arg(1, "2")));
     } else if (c == "lightshade") {  // lightshade 0-1: darkness of the shadows fixtures cast
         render::set_lshade(std::stof(arg(1, "0.65")));
     } else if (c == "fanshade") {  // fanshade 0-1: darkness of fan blade shadows on characters
@@ -384,7 +436,9 @@ void run(const std::string& line) {
                 }
             }
         });
-    } else if (c == "kill") {  // kill [RADIUS]: hit every necromorph near the player with 10000 damage
+    } else if (c == "kill") {  // DISABLED: it crashes the game (the HitEvent it builds is incomplete)
+        out("error: the kill command is disabled (it crashes the game); use the console /kill for the player");
+    } else if (c == "kill_broken") {
         float r = std::stof(arg(1, "40"));
         game_job([r](u32 pl) {
             static u32 fn_ctor = elf::find("_ZN8HitEventC1Ev"),

@@ -36,6 +36,7 @@ int g_screen_w = 1, g_screen_h = 1;
 
 u32 g_focus = 0;          // highlighted button
 float g_fx = -1, g_fy = -1;  // its last centre
+int g_repick_tries = 0;   // frames spent waiting for the new page's rows
 int g_repick = 0;         // frames until the highlight is placed again (page turning)
 bool g_keyboard = false;  // highlight shown (a navigation key was used since the last mouse use)
 std::function<void(float, float)> g_tap;
@@ -69,6 +70,56 @@ bool window_view(u32 win, float& ox, float& oy, float r[4]) {
     oy = r[1] + float(sy > -100000 && sy < 100000 ? sy : 0);
     return true;
 }
+// The entries of the store's list (rows, scrolling vertically) and of the bench's list (pictures, side
+// by side) are not buttons: their panel hit-tests touches itself. Each one drawn in a frame is noted
+// with the place it was drawn at (layout units, scrolling included), so it can be highlighted and
+// tapped like a button.
+struct Item {
+    u64 frame;
+    float x, y, pw, ph;  // where it was drawn; width and height of its panel
+    bool across;         // laid out side by side (bench)
+};
+std::map<u32, Item> g_items;
+u32 g_item_window = 0;  // the ScrollingWindow showing them
+void note_item(cpu::Ctx& c, bool across) {
+    float v[4];
+    const u32 bits[4] = {c.reg(3), mem::r32(c.reg(13)), mem::r32(c.reg(13) + 4), mem::r32(c.reg(13) + 8)};
+    std::memcpy(v, bits, 16);
+    g_items[c.reg(0)] = {g_frame, v[0], v[1], v[2], v[3], across};
+}
+void on_store_item_draw(cpu::Ctx& c) { note_item(c, false); }
+void on_bench_item_draw(cpu::Ctx& c) { note_item(c, true); }
+void on_panel_event(cpu::Ctx&) {
+    if (!g_windows.empty()) g_item_window = g_windows.back().first;
+}
+// Size of an entry: its panel's extent across the list, the distance to the next entry along it
+void item_size(const Item& it, float& w, float& h) {
+    float pitch = 1e9f;
+    for (auto& [o, other] : g_items) {
+        if (other.frame + 1 < g_frame || other.across != it.across) continue;
+        float d = std::fabs(it.across ? other.x - it.x : other.y - it.y);
+        if (d > 1.0f) pitch = std::min(pitch, d);
+    }
+    if (pitch > 1e8f) pitch = it.across ? 138.0f : 27.0f;  // (a single entry: the game's layouts)
+    w = it.across ? pitch : it.pw - 24.0f;  // (the store's scroll bar is at the right)
+    h = it.across ? it.ph : pitch;
+}
+// The part of the screen the list's window shows, in the same units
+bool item_view(float r[4]) {
+    static u32 buf = mem::heap_alloc(16, 8);
+    if (!g_item_window || !fn_window_rect || mem::r32(g_item_window) < 0x10000) return false;
+    cpu::call(fn_window_rect, {buf, g_item_window});
+    std::memcpy(r, mem::host(buf), 16);
+    return r[2] > 1.0f && r[3] > 1.0f;
+}
+// 1 when all of the entry is in view, 0 when it is cut off or scrolled out
+bool item_in_view(const Item& it) {
+    float r[4], w, h;
+    if (!item_view(r)) return true;
+    item_size(it, w, h);
+    return it.across ? it.x > r[0] - 3 && it.x + w < r[0] + r[2] + 3 : it.y > r[1] - 3 && it.y + h < r[1] + r[3] + 3;
+}
+
 std::string wname(u32 ws) {
     std::string s;
     for (u32 p = mem::r32(ws), e = mem::r32(ws + 4); p && p < e && s.size() < 64; p += 2) s += char(mem::r16(p));
@@ -93,9 +144,45 @@ std::vector<Button> all_buttons() {
             float cx = r[0] + r[2] * 0.5f, cy = r[1] + r[3] * 0.5f;
             if (cx < w[0] || cx > w[0] + w[2] || cy < w[1] || cy > w[1] + w[3]) continue;
         }
-        out.push_back({b, wname(b + 0x10), int(r[0] * k), int(r[1] * k), int(r[2] * k), int(r[3] * k)});
+        out.push_back({b, wname(b + 0x10), int(r[0] * k), int(r[1] * k), int(r[2] * k), int(r[3] * k), seen.window != 0});
+    }
+    for (auto& [o, it] : g_items) {
+        if (it.frame + 1 < g_frame || !item_in_view(it)) continue;
+        float w, h;
+        item_size(it, w, h);
+        Button b{o, wname(o + 0x10), int(it.x * k), int(it.y * k), int(w * k), int(h * k), false};
+        b.item = true;
+        out.push_back(b);
     }
     return out;
+}
+
+// The list entry after `from` (dir +1) or before it (-1), in view or not; 0 at the end of the list
+u32 next_item(u32 from, int dir) {
+    auto f = g_items.find(from);
+    if (f == g_items.end()) return 0;
+    u32 best = 0;
+    float bd = 1e9f;
+    for (auto& [o, it] : g_items) {
+        if (it.frame + 1 < g_frame || it.across != f->second.across) continue;
+        float d = (it.across ? it.x - f->second.x : it.y - f->second.y) * float(dir);
+        if (d > 1.0f && d < bd) bd = d, best = o;
+    }
+    return best;
+}
+// Scrolls the list so that the entry is in view (it is drawn there from the next frame on)
+void scroll_to_item(u32 obj) {
+    Item& it = g_items[obj];
+    float r[4], w, h;
+    if (!item_view(r)) return;
+    item_size(it, w, h);
+    float lo = it.across ? r[0] : r[1], hi = lo + (it.across ? r[2] : r[3]), at = it.across ? it.x : it.y, len = it.across ? w : h;
+    float d = at < lo ? lo - at : at + len > hi ? hi - (at + len) : 0.0f;
+    if (d == 0.0f) return;
+    const u32 field = g_item_window + (it.across ? 0x9c : 0xa0);
+    mem::w32(field, u32(s32(mem::r32(field)) + s32(std::lround(d))));
+    for (auto& [o, other] : g_items)  // (so that the highlight and the tap are right at once)
+        if (other.across == it.across) (it.across ? other.x : other.y) += d;
 }
 
 // Buttons the player can use right now
@@ -103,6 +190,10 @@ std::vector<Button> usable() {
     std::vector<Button> out;
     bool options = patches::options_open();
     for (auto& b : all_buttons()) {
+        if (b.item) {
+            out.push_back(b);
+            continue;
+        }
         u32 sub = mem::r32(b.obj + 0x38);
         if (!mem::r8(b.obj + 0x24) || (sub && !mem::r8(sub + 0x54))) continue;  // disabled / hidden
         // the options screens keep two invisible, inactive side arrows from the chapter-select layout
@@ -114,6 +205,11 @@ std::vector<Button> usable() {
         if (cx < 0 || cy < 0 || cx > g_screen_w || cy > g_screen_h) continue;  // off screen
         out.push_back(b);
     }
+    // the lists stay drawn (faded out) under a confirmation dialog: their entries count only while
+    // their screen's own Back button is in use
+    bool back = false;
+    for (auto& b : out) back |= !b.item && b.name == "BTN_BACK";
+    if (!back) out.erase(std::remove_if(out.begin(), out.end(), [](const Button& b) { return b.item; }), out.end());
     return out;
 }
 
@@ -145,7 +241,10 @@ const Button* step(const std::vector<Button>& v, const Button& from, int dx, int
         if (b.obj == from.obj) continue;
         if (same_row && (b.y >= from.y + from.h || b.y + b.h <= from.y)) continue;  // no vertical overlap
         float ox = b.x + b.w * 0.5f - fx, oy = b.y + b.h * 0.5f - fy;
-        float along = ox * dx + oy * dy, side = std::fabs(ox * dy) + std::fabs(oy * dx);
+        // sideways offset: how far apart the two are across the direction of travel (none when one is
+        // above / beside the other, however wide they are: a list row under a tab)
+        float gap = dy ? std::fabs(ox) - (b.w + from.w) * 0.5f : std::fabs(oy) - (b.h + from.h) * 0.5f;
+        float along = ox * dx + oy * dy, side = std::max(0.0f, gap) + (std::fabs(ox * dy) + std::fabs(oy * dx)) * 0.02f;
         if (along <= 1) continue;
         float d = along + side * 2.5f;
         if (d < bd) bd = d, best = &b;
@@ -153,11 +252,25 @@ const Button* step(const std::vector<Button>& v, const Button& from, int dx, int
     return best;
 }
 
+// The top-left button among the rows of a scrolling window (an options page), or null if none is shown.
+const Button* first_row(const std::vector<Button>& v) {
+    std::vector<Button> rows;
+    for (auto& b : v)
+        if (b.in_window) rows.push_back(b);
+    const Button* r = nearest(rows, -1, -1);
+    return r ? find(v, r->obj) : nullptr;
+}
+
 void set_focus(const Button* b) {
     if (!b) return;
+    const bool moved = g_focus != b->obj;
     g_focus = b->obj;
     g_fx = b->x + b->w * 0.5f;
     g_fy = b->y + b->h * 0.5f;
+    // a list entry is selected as the highlight reaches it (its details show, as when it is touched);
+    // one that is selected already (state 4) is left alone: touching it again is the same as the
+    // Purchase / Upgrade button, which is what the confirm key then does
+    if (moved && b->item && g_tap && mem::r32(b->obj + 0x64) != 4) g_tap(g_fx, g_fy);
 }
 
 }  // namespace
@@ -173,6 +286,11 @@ void install() {
     u32 wev = elf::find("_ZN15ScrollingWindow7onEventERKN2im5EventE");
     g_return_stub = cpu::register_hle("ScrollingWindow::onEvent return", on_window_return);
     if (wev) cpu::hook_entry(wev, "ScrollingWindow::onEvent", on_window_event);
+    const std::string draw = "4drawERN2im14SpriteGraphicsERN5eastl10shared_ptrINS0_11TexturePackENS3_9allocatorENS3_17smart_ptr_deleterIS5_EEEEffff";
+    if (u32 f = elf::find(("_ZN9StoreItem" + draw).c_str())) cpu::hook_entry(f, "StoreItem::draw", on_store_item_draw);
+    if (u32 f = elf::find(("_ZN9BenchItem" + draw).c_str())) cpu::hook_entry(f, "BenchItem::draw", on_bench_item_draw);
+    for (const char* sym : {"_ZN10StorePanel7onEventERKN2im5EventE", "_ZN10BenchPanel7onEventERKN2im5EventE"})
+        if (u32 f = elf::find(sym)) cpu::hook_entry(f, "list panel onEvent", on_panel_event);
 
 }
 
@@ -214,6 +332,18 @@ bool event(const SDL_Event& e, bool gameplay_active) {
         if (!confirm) return true;
         cur = find(v, g_focus);
     }
+    if (cur && cur->item && !confirm) {
+        // along the list: the next entry, scrolled into view if need be
+        const bool across = g_items[cur->obj].across;
+        if (int dir = across ? dx : dy) {
+            if (u32 to = next_item(cur->obj, dir)) {
+                scroll_to_item(to);
+                v = usable();
+                set_focus(find(v, to));
+                return true;
+            }
+        }
+    }
     if (confirm) {
         if (e.key.repeat || !cur || !g_tap) return true;
         g_tap(cur->x + cur->w * 0.5f, cur->y + cur->h * 0.5f);
@@ -222,10 +352,29 @@ bool event(const SDL_Event& e, bool gameplay_active) {
     // left / right: stay in the row; at its end an options page turns, elsewhere move to the nearest
     // button that way
     const Button* n = step(v, *cur, dx, dy, dx != 0);
+    // up / down in a list of options rows: when the next row that way is not on screen, the page scrolls
+    // one row and the highlight moves onto the row that comes into view
+    if (dy && cur->in_window && patches::options_open() && (!n || !n->in_window)) {
+        if (patches::options_wheel(-dy)) {
+            const u32 obj = cur->obj;
+            v = usable();
+            cur = find(v, obj);
+            const Button* m = cur ? step(v, *cur, 0, dy) : nullptr;
+            if (m && m->in_window) set_focus(m);
+            else if (!cur) {  // the highlighted row itself scrolled out: the row now in its place
+                std::vector<Button> rows;
+                for (auto& b : v)
+                    if (b.in_window) rows.push_back(b);
+                if (const Button* r = nearest(rows, g_fx, g_fy)) set_focus(find(v, r->obj));
+            }
+            return true;
+        }
+    }
     if (!n && dx && patches::options_open()) {
         if (patches::options_page(dx)) {
             g_focus = 0;
-            g_repick = 25;  // after the page has slid in: top-left button of the new page
+            g_repick = 25;  // after the page has slid in: the first row of the new page
+            g_repick_tries = 0;
         }
         return true;
     }
@@ -241,13 +390,22 @@ void frame(bool gameplay_active) {
     for (auto it = g_seen.begin(); it != g_seen.end();)
         it = it->second.frame + 2 < g_frame ? g_seen.erase(it) : std::next(it);
     g_windows.clear();  // (between game frames nothing is in progress)
+    for (auto it = g_items.begin(); it != g_items.end();)
+        it = it->second.frame + 2 < g_frame ? g_items.erase(it) : std::next(it);
     if (gameplay_active || !g_keyboard) return;
     if (g_repick > 0 && --g_repick > 0) return;
     auto v = usable();
     const Button* b = find(v, g_focus);
     if (!b) {
         if (v.empty()) return;
-        set_focus(nearest(v, -1, -1));  // highlighted button gone (new screen / page): top-left
+        // highlighted button gone (new screen / page): the top-left one; on an options page its first
+        // row, waiting a little if the page's rows have not slid into view yet
+        const Button* first = patches::options_open() ? first_row(v) : nullptr;
+        if (!first && patches::options_open() && g_repick_tries++ < 45) {
+            g_repick = 1;
+            return;
+        }
+        set_focus(first ? first : nearest(v, -1, -1));
         b = find(v, g_focus);
     }
     // outline, pulsing

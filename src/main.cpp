@@ -310,6 +310,9 @@ int main(int argc, char** argv) {
 
     SDL_SetMainReady();
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");  // real pixels, no DPI virtualisation
+    // PlayStation controllers: full feature mode, so the light bar can be set over Bluetooth as well as USB
+    SDL_SetHint("SDL_JOYSTICK_HIDAPI_PS4_RUMBLE", "1");
+    SDL_SetHint("SDL_JOYSTICK_HIDAPI_PS5_RUMBLE", "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
         LOGE("SDL_Init: %s", SDL_GetError());
         return 1;
@@ -364,6 +367,7 @@ int main(int argc, char** argv) {
         render::set_shadows(settings::get_int("shadows", 2));
         render::set_light_shadows(settings::get_int("light_shadows", 1) != 0);
         render::set_vignette(settings::get_int("vignette", 1) != 0);
+        render::set_env_light(settings::get_int("light_contrast", 2));
     }
     else LOGW("native renderer unavailable; using the legacy path");
 
@@ -441,7 +445,23 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&e)) {
             float gx, gy;
             if (console::event(e)) continue;
-            if (e.type == SDL_MOUSEWHEEL && patches::options_wheel(e.wheel.y)) continue;  // scrolls an options page
+            // loading screen "press any key to continue": any key or mouse button taps where the game waits for
+            // one; the left / right arrow keys swipe through its hints
+            if (patches::loading_wait() && ((e.type == SDL_KEYDOWN && !e.key.repeat && (e.key.keysym.sym < SDLK_F1 || e.key.keysym.sym > SDLK_F12)) ||
+                                            e.type == SDL_MOUSEBUTTONDOWN)) {
+                float w = float(g_config.screen_w), h = float(g_config.screen_h);
+                if (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_LEFT || e.key.keysym.sym == SDLK_RIGHT)) {
+                    float dir = e.key.keysym.sym == SDLK_RIGHT ? -1.0f : 1.0f;  // right = next hint = swipe to the left
+                    g_taps.push_back({frames + 1, w * 0.5f - dir * w * 0.15f, h * 0.45f, 10, dir * w * 0.3f, 0});
+                } else {
+                    g_taps.push_back({frames + 1, w * 0.5f, h * 0.93f, 4, 0, 0});
+                }
+                continue;
+            }
+            if (e.type == SDL_MOUSEWHEEL && patches::options_open()) {  // scrolls an options page
+                patches::options_wheel(e.wheel.y);
+                continue;
+            }  // scrolls an options page
             if (e.type == SDL_KEYDOWN && e.key.keysym.scancode == SDL_SCANCODE_ESCAPE) menu_nav::hide();
             if (input::event(e, win)) continue;
             if (menu_nav::event(e, input::controls_active())) continue;
@@ -521,6 +541,21 @@ int main(int argc, char** argv) {
         } else if (ff_vsync_off) {
             SDL_GL_SetSwapInterval(settings::get_int("vsync", 1) ? 1 : 0);
             ff_vsync_off = false;
+        }
+        if (int grab = input::grab()) {
+            // grabbed: the button prompt, in place of the game's swipe / tap instructions
+            std::string key = input::action_label("melee", input::using_pad());
+            for (char& ch : key) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+            bool mash = grab == 5 || grab == 100;
+            bool waiting = grab == 1 || grab == 5 || grab == 7 || grab == 100;
+            if (waiting) {
+                std::string txt = std::string(mash ? "TAP  [ " : "PRESS  [ ") + key + " ]";
+                float px = g_config.screen_h / 180.0f;
+                float w = hle::overlay_text(-10000, -10000, px, txt.c_str(), 0), x = (g_config.screen_w - w) * 0.5f, y = g_config.screen_h * 0.72f;
+                bool on = !mash || (SDL_GetTicks() / 120) % 2 == 0;  // a tapping prompt blinks
+                hle::overlay_rect(x - 3 * px, y - 3 * px, w + 6 * px, 13 * px, 0x000000b0u);
+                hle::overlay_text(x, y, px, txt.c_str(), on ? 0x60e8ffffu : 0x2c7890ffu);
+            }
         }
         {  // frames per second, averaged over half a second (Options: Show FPS)
             static u64 fps_t0 = SDL_GetPerformanceCounter();

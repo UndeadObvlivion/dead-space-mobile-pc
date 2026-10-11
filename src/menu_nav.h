@@ -26,6 +26,8 @@ struct Button {
     u32 obj;
     std::string name;
     int x, y, w, h;  // game screen pixels
+    bool in_window = false;  // inside a scrolling window (an options row)
+    bool item = false;       // an entry of the bench's or the store's list (not a LayoutButton)
 };
 std::vector<Button> buttons();  // buttons updated during the last game frame (debug)
 

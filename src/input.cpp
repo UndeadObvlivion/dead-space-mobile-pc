@@ -157,10 +157,69 @@ int code_from_name(const std::string& n) {
     SDL_Scancode sc = SDL_GetScancodeFromName(n.c_str());
     return sc == SDL_SCANCODE_UNKNOWN ? 0 : int(sc);
 }
+// ---- controller bindings (defaults follow the Dead Space remake's layout)
+enum PadBind { P_RUN, P_RUN_TOGGLE, P_AIM, P_FIRE, P_INTERACT, P_RELOAD, P_STASIS, P_QUICK_TURN, P_STOMP, P_ALT_FIRE, P_JUMP, P_RIG, P_LOCATOR, P_COUNT };
+constexpr int kLT = kPadCode + 100, kRT = kPadCode + 101;
+struct PadDef {
+    Binding b;
+    Bind act;
+};
+const PadDef kPad[P_COUNT] = {
+    {{"run", "Run (hold)", kPadCode + SDL_CONTROLLER_BUTTON_LEFTSHOULDER}, B_RUN},
+    {{"run_toggle", "Run (click)", kPadCode + SDL_CONTROLLER_BUTTON_LEFTSTICK}, B_RUN},
+    {{"aim", "Aim", kLT}, B_AIM},
+    {{"fire", "Fire / Melee", kRT}, B_FIRE},
+    {{"interact", "Interact / Kinesis", kPadCode + SDL_CONTROLLER_BUTTON_A}, B_INTERACT},
+    {{"reload", "Reload", kPadCode + SDL_CONTROLLER_BUTTON_X}, B_RELOAD},
+    {{"stasis", "Stasis", kPadCode + SDL_CONTROLLER_BUTTON_Y}, B_STASIS},
+    {{"quick_turn", "Quick Turn", kPadCode + SDL_CONTROLLER_BUTTON_B}, B_QUICK_TURN},
+    {{"stomp", "Stomp (not aiming)", kPadCode + SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}, B_STOMP},
+    {{"alt_fire", "Alt Fire (aiming)", kPadCode + SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}, B_ALT_FIRE},
+    {{"jump", "Zero-G Jump (aiming)", kPadCode + SDL_CONTROLLER_BUTTON_B}, B_JUMP},
+    {{"rig", "RIG / Weapons", kPadCode + SDL_CONTROLLER_BUTTON_BACK}, B_RIG},
+    {{"locator", "Navigation Line", kPadCode + SDL_CONTROLLER_BUTTON_RIGHTSTICK}, B_LOCATOR},
+};
+int g_padbind[P_COUNT];
+std::atomic<float> g_health_frac{1.0f};  // player health / maximum
+bool g_run_toggle = false;      // sprint switched on with the click button, until the stick is let go
+bool g_pad_down[128] = {};      // by code - kPadCode
+float g_axis[8] = {};           // SDL_GameControllerAxis, -1..1
+std::atomic<bool> g_pad_active{false};
+SDL_GameController* g_pad = nullptr;
+
+const char* pad_name(int code) {
+    switch (code - kPadCode) {
+    case SDL_CONTROLLER_BUTTON_A: return "A";
+    case SDL_CONTROLLER_BUTTON_B: return "B";
+    case SDL_CONTROLLER_BUTTON_X: return "X";
+    case SDL_CONTROLLER_BUTTON_Y: return "Y";
+    case SDL_CONTROLLER_BUTTON_BACK: return "Back";
+    case SDL_CONTROLLER_BUTTON_START: return "Start";
+    case SDL_CONTROLLER_BUTTON_LEFTSTICK: return "L3";
+    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return "R3";
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return "LB";
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "RB";
+    case SDL_CONTROLLER_BUTTON_DPAD_UP: return "D-pad Up";
+    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return "D-pad Down";
+    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return "D-pad Left";
+    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return "D-pad Right";
+    case 100: return "LT";
+    case 101: return "RT";
+    }
+    return nullptr;
+}
+bool pad_code_down(int code) { return code >= kPadCode && code < kPadCode + 128 && g_pad_down[code - kPadCode]; }
+
 void load_bindings() {
     for (int i = 0; i < B_COUNT; i++) {
         int c = code_from_name(settings::get_string(std::string("bind_") + kBindings[i].key, ""));
         g_bind[i] = c ? c : kBindings[i].def;
+    }
+    for (int i = 0; i < P_COUNT; i++) {
+        std::string n = settings::get_string(std::string("padbind_") + kPad[i].b.key, "");
+        g_padbind[i] = kPad[i].b.def;
+        for (int c = kPadCode; c < kPadCode + 128; c++)
+            if (const char* pn = pad_name(c); pn && n == pn) g_padbind[i] = c;
     }
 }
 bool code_down(int code) {
@@ -315,6 +374,53 @@ void on_look_at(cpu::Ctx& c) {
     record_camera(c);
 }
 
+// ---- grabs
+// A necromorph that grabs the player starts a struggle the game drives with touch gestures
+// (GameObjectPlayable grapple state at +0x37c): 1 = swipe along the first arrow, 5 = tap repeatedly,
+// 7 = swipe along the second arrow. Swarms that jump on the player (slots of 12 bytes from +0x3f4) are
+// tapped off one by one. With a keyboard one key does all of it: each press makes the move the current
+// phase is waiting for. The game has this for gamepads (emulateGrappleGestureEvent); taps are sent as
+// the pointer events its handlers expect.
+int g_grab_state = 0;  // grapple state last seen; 100 = swarms attached
+bool struggle(u32 player) {
+    static u32 fn_emulate = elf::find("_ZN18GameObjectPlayable26emulateGrappleGestureEventEa"),
+               fn_grapple_ev = elf::find("_ZN18GameObjectPlayable14onGrappleEventERKN2im5EventE"),
+               fn_swarm_ev = elf::find("_ZN18GameObjectPlayable19onGrappleSwarmEventERKN2im5EventE");
+    static u32 ev = 0;
+    if (!ev) {
+        ev = mem::data_alloc(64);
+        std::memset(mem::host(ev), 0, 64);
+    }
+    if (!fn_emulate || !fn_grapple_ev || !fn_swarm_ev) return false;
+    mem::w32(ev + 4, 1001);  // pointer press
+    int gs = s32(mem::r32(player + 0x37c));
+    if (gs == 1) return cpu::call(fn_emulate, {player, 1}), true;
+    if (gs == 7) return cpu::call(fn_emulate, {player, 0}), true;
+    if (gs == 5) return cpu::call(fn_grapple_ev, {player, ev}), true;
+    if (gs > 0 && gs < 10) return true;  // between phases: the key does nothing else
+    for (u32 slot = 0; slot < 8; slot++) {
+        u32 sw = mem::r32(player + 0x3f4 + slot * 0xc);
+        if (sw < 0x10000 || mem::r32(sw) < 0x10000) continue;
+        if (!(cpu::call(mem::r32(mem::r32(sw) + 0x110), {sw}) & 0xff) || (mem::r32(sw + 0x48) & 1)) continue;
+        float sx = 0, sy = 0;
+        if (!objs::to_screen(g_world, objs::pos(sw), sx, sy)) continue;
+        mem::w32(ev + 8, u32(s32(sx)));
+        mem::w32(ev + 0xc, u32(s32(sy)));
+        cpu::call(fn_swarm_ev, {player, ev});
+        return true;
+    }
+    return false;
+}
+int grab_state(u32 player) {
+    int gs = s32(mem::r32(player + 0x37c));
+    if (gs > 0 && gs < 10) return gs;
+    for (u32 slot = 0; slot < 8; slot++) {
+        u32 sw = mem::r32(player + 0x3f4 + slot * 0xc);
+        if (sw >= 0x10000 && mem::r32(sw) >= 0x10000 && !(mem::r32(sw + 0x48) & 1)) return 100;
+    }
+    return 0;
+}
+
 void on_player_update(cpu::Ctx& c) {
     u32 player = c.reg(0);
     int dt_ms = int(c.reg(1));
@@ -330,7 +436,22 @@ void on_player_update(cpu::Ctx& c) {
     g_player_tick++;
     if (++g_ticks_this_player == 600 && !g_teleport_class.empty() && g_world) debug_teleport(player, g_world);
     g_aiming = mem::r8(player + 0x1ed) != 0;
+    {
+        // health as the RIG shows it, for the controller's light bar
+        static u32 fn_health_max = elf::find("_ZNK18GameObjectPlayable12getHealthMaxEv");
+        float hp = f32(player + 0x25c), mx = 0;
+        if (fn_health_max) {
+            u32 v = cpu::call(fn_health_max, {player});
+            std::memcpy(&mx, &v, 4);
+        }
+        g_health_frac = mx > 0 ? std::clamp(hp / mx, 0.0f, 1.0f) : 1.0f;
+    }
     g_state = s32(mem::r32(player + 0x210));
+    {
+        int gs = grab_state(player);
+        if (gs != g_grab_state) LOGI("input: grab state %d -> %d", g_grab_state, gs);
+        g_grab_state = gs;
+    }
     u32 hud = g_hud;
     if (hud) {
         bool paused = (cpu::call(fn_is_paused, {hud}) & 0xff) || (cpu::call(fn_in_rig, {hud}) & 0xff) ||
@@ -387,6 +508,7 @@ void on_player_update(cpu::Ctx& c) {
             break;
         }
         case EV_ACTION:
+            if ((e.a == 6 || e.a == 14) && struggle(player)) break;  // fire / melee during a grab: break free
             snap_free_look(player);
             send_action(fn_player_event, player, e.a);
             break;
@@ -398,6 +520,7 @@ void on_player_update(cpu::Ctx& c) {
                 if (dev::active()) dev::out(r);
                 break;
             }
+            if (struggle(player)) break;  // during a grab the key breaks free
             snap_free_look(player);
             interact::use(player, g_world, look, g_trace || dev::active());
             break;
@@ -465,6 +588,25 @@ void on_revert_pitch(cpu::Ctx& c) {
     if (c.lr() == g_revert_from_walk) c.set_reg(1, 0);
 }
 
+// A power node lock's dialog ("Use a Power Node?" / "you have none"): while it is up (state at +0x264),
+// the game is not taking gameplay input, so the mouse is freed and the menu keys / controller work on its
+// buttons.
+std::atomic<u32> g_dialog_ms{0};
+void on_lock_update(cpu::Ctx& c) {
+    if (mem::r32(c.reg(0) + 0x264) != 0) g_dialog_ms = SDL_GetTicks() | 1;
+}
+// The bench (state at +0x224: 3..9 from the moment it is used until its screen has closed) and the
+// store (+0x1e4: 1..5) are full-screen menus over the game: the same applies, and the camera stays put.
+void on_bench_update(cpu::Ctx& c) {
+    u32 st = mem::r32(c.reg(0) + 0x224);
+    if (st >= 3 && st <= 9) g_dialog_ms = SDL_GetTicks() | 1;
+}
+void on_store_update(cpu::Ctx& c) {
+    u32 st = mem::r32(c.reg(0) + 0x1e4);
+    if (st >= 1 && st <= 5) g_dialog_ms = SDL_GetTicks() | 1;
+}
+bool dialog_open() { return g_dialog_ms && SDL_GetTicks() - g_dialog_ms < 200; }
+
 void on_cinematic_update(cpu::Ctx& c) {
     u32 cine = c.reg(0);
     s32 state = s32(mem::r32(cine + 0x174));
@@ -491,7 +633,7 @@ void back_key() {
 bool cinematic_playing() { return g_frames_without_cine < 10; }
 
 bool gameplay_active() {
-    return g_frames_without_player < 10 && !g_paused && g_player != 0 && !cinematic_playing();
+    return g_frames_without_player < 10 && !g_paused && g_player != 0 && !cinematic_playing() && !dialog_open();
 }
 
 float mouse_scale() { return std::max(1, settings::get_int("mouse_sensitivity", 100)) / 100.0f; }
@@ -502,9 +644,35 @@ bool mouse_smoothing() { return settings::get_int("mouse_smoothing", 0) != 0; }
 void set_trace(bool on) { g_trace = on; }
 
 int binding_count() { return B_COUNT; }
-const Binding& binding(int i) { return kBindings[i]; }
-int binding_code(int i) { return g_bind[i]; }
+int pad_binding_count() { return P_COUNT; }
+bool using_pad() { return g_pad_active; }
+const Binding& binding(int i) { return i >= kPadBindBase ? kPad[i - kPadBindBase].b : kBindings[i]; }
+int binding_code(int i) { return i >= kPadBindBase ? g_padbind[i - kPadBindBase] : g_bind[i]; }
+void reset_pad_bindings() {
+    for (int i = 0; i < P_COUNT; i++) {
+        g_padbind[i] = kPad[i].b.def;
+        settings::set_string(std::string("padbind_") + kPad[i].b.key, code_name(g_padbind[i]));
+    }
+}
+std::string action_label(const std::string& key, bool pad) {
+    if (pad) {
+        if (key.rfind("move_", 0) == 0) return "Left Stick";
+        const std::string k = key == "melee" ? "fire" : key;  // melee is the fire button while not aiming
+        for (int i = 0; i < P_COUNT; i++)
+            if (k == kPad[i].b.key) return code_name(g_padbind[i]);
+        return "?";
+    }
+    for (int i = 0; i < B_COUNT; i++)
+        if (key == kBindings[i].key) return code_name(g_bind[i]);
+    return "?";
+}
 void set_binding(int i, int code) {
+    if (i >= kPadBindBase) {  // controller: buttons may be shared (the action taken depends on aiming)
+        if (i - kPadBindBase >= P_COUNT) return;
+        g_padbind[i - kPadBindBase] = code;
+        settings::set_string(std::string("padbind_") + kPad[i - kPadBindBase].b.key, code_name(code));
+        return;
+    }
     if (i < 0 || i >= B_COUNT) return;
     for (int k = 0; k < B_COUNT; k++)
         if (k != i && g_bind[k] == code) {
@@ -521,6 +689,10 @@ void reset_bindings() {
     }
 }
 std::string code_name(int code) {
+    if (code >= kPadCode) {
+        const char* p = pad_name(code);
+        return p ? p : "Button ?";
+    }
     if (code >= kMouseCode) {
         const char* m = mouse_name(code - kMouseCode);
         return m ? m : "Mouse ?";
@@ -537,6 +709,8 @@ const std::vector<int>& bindable_codes() {
         }
         for (int b = 1; b < 8; b++)
             if (mouse_name(b)) r.push_back(kMouseCode + b);
+        for (int c = kPadCode; c < kPadCode + 128; c++)
+            if (pad_name(c)) r.push_back(c);
         return r;
     }();
     return v;
@@ -546,6 +720,7 @@ void run_on_game_thread(std::function<void(unsigned)> fn) {
     g_jobs.push_back(std::move(fn));
 }
 unsigned world() { return g_world; }
+int grab() { return g_grab_state; }
 unsigned player() { return g_frames_without_player > 2 ? 0u : unsigned(g_player); }
 bool camera(float eye[3], float target[3], float up[3]) {
     if (SDL_GetTicks() - g_cam_ms > 100) return false;
@@ -600,6 +775,9 @@ void install() {
         {"_ZN18GameObjectPlayableD0Ev", "GameObjectPlayable::~GameObjectPlayable (deleting)", on_player_destroyed},
         {"_ZN18GameObjectPlayable11revertPitchEff", "GameObjectPlayable::revertPitch", on_revert_pitch},
         {"_ZN19GameObjectCinematic8onUpdateEi", "GameObjectCinematic::onUpdate", on_cinematic_update},
+        {"_ZN23GameObjectPowerNodeLock8onUpdateEi", "GameObjectPowerNodeLock::onUpdate", on_lock_update},
+        {"_ZN5Bench8onUpdateEi", "Bench::onUpdate", on_bench_update},
+        {"_ZN5Store8onUpdateEi", "Store::onUpdate", on_store_update},
         {"_ZN16CameraController18getLookAtTransformERN3m3g9TransformERK9btVector3S5_S5_",
          "CameraController::getLookAtTransform", on_look_at},
     };
@@ -729,7 +907,139 @@ void release_all() {
     std::memset(g_mouse_btn, 0, sizeof g_mouse_btn);
 }
 
+// ---- controller input
+constexpr Uint32 kSynth = 0x50414453;  // marks key events made from controller input (menus)
+void synth_key(SDL_Scancode sc, SDL_Keycode sym) {
+    SDL_Event e{};
+    e.type = SDL_KEYDOWN;
+    e.key.state = SDL_PRESSED;
+    e.key.keysym.scancode = sc;
+    e.key.keysym.sym = sym;
+    e.key.keysym.unused = kSynth;
+    SDL_PushEvent(&e);
+    e.type = SDL_KEYUP;
+    e.key.state = SDL_RELEASED;
+    SDL_PushEvent(&e);
+}
+
+void pad_button(int code, bool down) {
+    if (code < kPadCode || code >= kPadCode + 128) return;
+    g_pad_down[code - kPadCode] = down;
+    const int b = code - kPadCode;
+    if (!g_mouse_captured) {
+        // menus, cinematics, loading screens: the D-pad moves the highlight, A confirms, B / Start go back
+        if (!down) return;
+        bool in_rig = g_hud && fn_in_rig && (cpu::call(fn_in_rig, {g_hud}) & 0xff);
+        switch (b) {
+        case SDL_CONTROLLER_BUTTON_DPAD_UP: synth_key(SDL_SCANCODE_UP, SDLK_UP); break;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: synth_key(SDL_SCANCODE_DOWN, SDLK_DOWN); break;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: synth_key(SDL_SCANCODE_LEFT, SDLK_LEFT); break;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: synth_key(SDL_SCANCODE_RIGHT, SDLK_RIGHT); break;
+        case SDL_CONTROLLER_BUTTON_A: synth_key(SDL_SCANCODE_RETURN, SDLK_RETURN); break;
+        case SDL_CONTROLLER_BUTTON_B:
+        case SDL_CONTROLLER_BUTTON_START:
+            if (in_rig) hud_button(g_hud, "BTN_RIG");  // (the back key would open the pause menu over it)
+            else back_key();
+            break;
+        default:
+            if (in_rig && code == g_padbind[P_RIG]) hud_button(g_hud, "BTN_RIG");
+            break;
+        }
+        return;
+    }
+    if (b == SDL_CONTROLLER_BUTTON_START) {
+        if (down) back_key();  // pause
+        return;
+    }
+    const bool aiming = g_aiming || g_rmb;
+    bool bound = false;
+    for (int p = 0; p < P_COUNT; p++) {
+        if (g_padbind[p] != code) continue;
+        bound = true;
+        const Bind act = kPad[p].act;
+        if (!down) {
+            if (act == B_AIM || act == B_FIRE) release_action(act);
+            continue;
+        }
+        // one button can carry two actions: which one depends on whether the weapon is up
+        if (p == P_RUN_TOGGLE) g_run_toggle = !g_run_toggle;
+        if (act == B_RUN || ((act == B_ALT_FIRE || act == B_JUMP) && !aiming) || ((act == B_STOMP || act == B_QUICK_TURN) && aiming)) continue;
+        press_action(act);
+    }
+    if (bound || !down) return;
+    // D-pad: the four weapons (unless bound to something)
+    int w = b == SDL_CONTROLLER_BUTTON_DPAD_UP ? 0 : b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT ? 1 : b == SDL_CONTROLLER_BUTTON_DPAD_DOWN ? 2
+            : b == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? 3 : -1;
+    if (w >= 0) push({EV_WEAPON, w});
+}
+
+// Controller events; true if `e` was one.
+bool pad_event(const SDL_Event& e) {
+    switch (e.type) {
+    case SDL_CONTROLLERDEVICEADDED:
+        if (!g_pad) {
+            g_pad = SDL_GameControllerOpen(e.cdevice.which);
+            LOGI("input: controller connected: %s", g_pad ? SDL_GameControllerName(g_pad) : SDL_GetError());
+        }
+        return true;
+    case SDL_CONTROLLERDEVICEREMOVED:
+        if (g_pad && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad)) == e.cdevice.which) {
+            SDL_GameControllerClose(g_pad);
+            g_pad = nullptr;
+            g_pad_active = false;
+            for (int c = 0; c < 128; c++)
+                if (g_pad_down[c]) pad_button(kPadCode + c, false);
+            std::memset(g_axis, 0, sizeof g_axis);
+            LOGI("input: controller disconnected");
+        }
+        return true;
+    case SDL_CONTROLLERBUTTONDOWN:
+    case SDL_CONTROLLERBUTTONUP: {
+        bool down = e.type == SDL_CONTROLLERBUTTONDOWN;
+        int code = kPadCode + e.cbutton.button;
+        if (down) g_pad_active = true;
+        if (int cap = g_capture; cap >= kPadBindBase && down) {  // Options: waiting for a button to bind
+            if (e.cbutton.button != SDL_CONTROLLER_BUTTON_START && pad_name(code)) {
+                set_binding(cap, code);
+                LOGI("input: controller %s bound to %s", kPad[cap - kPadBindBase].b.label, code_name(code).c_str());
+            }
+            g_capture = -1;
+            return true;
+        }
+        pad_button(code, down);
+        return true;
+    }
+    case SDL_CONTROLLERAXISMOTION: {
+        int a = e.caxis.axis;
+        if (a < 0 || a >= 8) return true;
+        float v = std::clamp(float(e.caxis.value) / 32767.0f, -1.0f, 1.0f);
+        g_axis[a] = v;
+        if (std::fabs(v) > 0.5f) g_pad_active = true;
+        if (a == SDL_CONTROLLER_AXIS_TRIGGERLEFT || a == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
+            int code = a == SDL_CONTROLLER_AXIS_TRIGGERLEFT ? kLT : kRT;
+            bool was = g_pad_down[code - kPadCode], now = v > (was ? 0.25f : 0.45f);
+            if (now != was) {
+                if (int cap = g_capture; cap >= kPadBindBase && now) {
+                    set_binding(cap, code);
+                    g_capture = -1;
+                    g_pad_down[code - kPadCode] = true;
+                } else {
+                    pad_button(code, now);
+                }
+            }
+        }
+        return true;
+    }
+    default: return false;
+    }
+}
+
 bool event(const SDL_Event& e, SDL_Window* win) {
+    if (pad_event(e)) return true;
+    // keyboard or mouse in use again: prompts go back to keys
+    if ((e.type == SDL_KEYDOWN && e.key.keysym.unused != kSynth) || e.type == SDL_MOUSEBUTTONDOWN ||
+        (e.type == SDL_MOUSEMOTION && std::abs(e.motion.xrel) + std::abs(e.motion.yrel) > 6))
+        g_pad_active = false;
     if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
         SDL_Scancode sc = e.key.keysym.scancode;
         if (sc > 0 && sc < SDL_NUM_SCANCODES) g_keys[sc] = e.type == SDL_KEYDOWN;
@@ -738,7 +1048,12 @@ bool event(const SDL_Event& e, SDL_Window* win) {
         g_mouse_btn[e.button.button] = e.type == SDL_MOUSEBUTTONDOWN;
     // Options menu waiting for a key to bind: the next key / mouse button press is taken
     // (releases still pass, so the click that opened the prompt finishes normally)
-    if (int cap = g_capture; cap >= 0) {
+    if (int cap = g_capture; cap >= kPadBindBase) {
+        if (e.type == SDL_KEYDOWN && e.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+            g_capture = -1;
+            return true;
+        }
+    } else if (cap >= 0) {
         int code = 0;
         if (e.type == SDL_KEYDOWN && !e.key.repeat) {
             if (e.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
@@ -819,7 +1134,26 @@ bool event(const SDL_Event& e, SDL_Window* win) {
     (void)win;
 }
 
+// Light bar (DualSense, DualShock 4, any controller with an RGB light): the colour of the RIG's health
+// bar, by the game's own thresholds: blue above half health, yellow down to a quarter, red below and when
+// dead. Outside gameplay it is the healthy blue.
+void update_light_bar() {
+    static SDL_GameController* lit = nullptr;
+    static int shown = -1;
+    if (g_pad != lit) lit = g_pad, shown = -1;
+    if (!g_pad || !SDL_GameControllerHasLED(g_pad)) return;
+    float hf = g_frames_without_player > 2 ? 1.0f : g_health_frac.load();
+    int level = hf <= 0.25f ? 2 : hf <= 0.5f ? 1 : 0;
+    if (level == shown) return;
+    static const Uint8 rgb[3][3] = {{0, 150, 255}, {255, 170, 0}, {255, 0, 0}};
+    if (SDL_GameControllerSetLED(g_pad, rgb[level][0], rgb[level][1], rgb[level][2]) == 0) {
+        if (shown < 0) LOGI("input: controller light bar follows the player's health");
+        shown = level;
+    }
+}
+
 bool frame(SDL_Window* win) {
+    update_light_bar();
     u32 ctick = g_cinematic_tick;
     if (ctick != g_cine_tick_seen && g_cinematic) {
         g_frames_without_cine = 0;
@@ -855,14 +1189,41 @@ bool frame(SDL_Window* win) {
         }
         if (!want) g_rmb = g_lmb = false;
     }
-    if (!g_mouse_captured) return false;
+    if (!g_mouse_captured) {
+        // menus: the left stick moves the highlight like the D-pad (with repeat)
+        static int held = 0;
+        static u32 next = 0;
+        int dir = !g_pad_active ? 0 : g_axis[1] < -0.6f ? 1 : g_axis[1] > 0.6f ? 2 : g_axis[0] < -0.6f ? 3 : g_axis[0] > 0.6f ? 4 : 0;
+        u32 now = SDL_GetTicks();
+        if (dir && (dir != held || now >= next)) {
+            static const SDL_Scancode sc[5] = {SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT};
+            static const SDL_Keycode ky[5] = {0, SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT};
+            synth_key(sc[dir], ky[dir]);
+            next = now + (dir != held ? 400u : 160u);
+        }
+        held = dir;
+        return false;
+    }
 
-    // movement
+    // movement: keys, or the left stick (how far it is pushed sets the pace up to a walk)
     float mx = float(bind_down(B_RIGHT)) - float(bind_down(B_LEFT));
     float my = float(bind_down(B_BACK)) - float(bind_down(B_FORWARD));
+    float pace = 1.0f;
+    bool pad_run = false;
+    if (mx == 0 && my == 0) {
+        float sm = std::hypot(g_axis[0], g_axis[1]);
+        if (sm > 0.24f) {
+            mx = g_axis[0], my = g_axis[1];
+            pace = std::clamp((sm - 0.24f) / 0.5f, 0.3f, 1.0f);
+            pad_run = pad_code_down(g_padbind[P_RUN]) || g_run_toggle;
+        } else {
+            g_run_toggle = false;  // stick let go: the sprint ends
+        }
+    }
     if (mx != 0 || my != 0) {
-        float len = std::sqrt(mx * mx + my * my);
-        bool run_key = bind_down(B_RUN) || (!code_bound(SDL_SCANCODE_RSHIFT) && ks[SDL_SCANCODE_RSHIFT]);
+        float len = std::sqrt(mx * mx + my * my) / pace;
+        bool run_key = pad_run || bind_down(B_RUN) || (!code_bound(SDL_SCANCODE_RSHIFT) && ks[SDL_SCANCODE_RSHIFT]);
+        if (g_rmb) g_run_toggle = false;
         int run = run_key && my < 0 && !g_rmb ? 1 : 0;  // holding aim stops sprinting
         push({EV_MOVE, 0, mx / len, my / len, run});
         g_moving = true;
@@ -885,9 +1246,27 @@ bool frame(SDL_Window* win) {
                 ly += g_smooth_y[i] / kSmoothFrames;
             }
         }
-        if (lx != 0 || ly != 0) {
+        // right stick: a turning speed (full deflection = 200 degrees a second at 100%; slower while aiming),
+        // in the same units as mouse counts (0.05 degrees each)
+        float px = 0, py = 0;
+        {
+            static u32 last = 0;
+            u32 now = SDL_GetTicks();
+            float dt = last && now - last < 100 ? float(now - last) / 1000.0f : 0.016f;
+            last = now;
+            auto curve = [](float v) {
+                float a = std::fabs(v);
+                if (a < 0.18f) return 0.0f;
+                a = (a - 0.18f) / 0.82f;
+                return (v < 0 ? -1.0f : 1.0f) * a * (0.35f + 0.65f * a);
+            };
+            float k = float(std::clamp(settings::get_int("pad_sensitivity", 100), 10, 300)) / 100.0f * (g_aiming ? 0.55f : 1.0f) * dt;
+            px = curve(g_axis[2]) * 4000.0f * k;
+            py = curve(g_axis[3]) * 2400.0f * k;
+        }
+        if (lx != 0 || ly != 0 || px != 0 || py != 0) {
             float s = mouse_scale();
-            push({EV_LOOK, 0, lx * s, ly * s});
+            push({EV_LOOK, 0, lx * s + px, ly * s + py});
         }
     }
 

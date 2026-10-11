@@ -27,7 +27,11 @@ public:
     // strings (indices are the 1-based values stored in string fields)
     uint16_t find_string(const std::string& s) const;
     uint16_t add_string(const std::string& s);
-    const std::string& string(uint16_t idx1) const { return strs_[idx1 - 1]; }
+    // (index 0 = no string: unnamed entities have it)
+    const std::string& string(uint16_t idx1) const {
+        static const std::string none;
+        return idx1 >= 1 && idx1 <= strs_.size() ? strs_[idx1 - 1] : none;
+    }
 
     int find_struct(const std::string& name) const;
     std::vector<Field> fields(int struct_idx) const;

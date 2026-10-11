@@ -67,6 +67,24 @@ void log_backtrace() {
     }
 }
 
+// First-chance report of access violations outside guest memory (the JIT handles its own faults on
+// guest addresses): some crashes never reach the unhandled-exception filter.
+LONG WINAPI on_first_chance(EXCEPTION_POINTERS* ep) {
+    static LONG shown = 0;
+    auto* er = ep->ExceptionRecord;
+    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2) return EXCEPTION_CONTINUE_SEARCH;
+    uintptr_t a = er->ExceptionInformation[1], gb = uintptr_t(mem::g_base);
+    if (gb && a >= gb && a < gb + (1ull << 32)) return EXCEPTION_CONTINUE_SEARCH;
+    if (InterlockedIncrement(&shown) > 3) return EXCEPTION_CONTINUE_SEARCH;
+    uintptr_t off;
+    std::string mod = module_of(er->ExceptionAddress, off);
+    LOGE("access violation (first chance) at %s+0x%llx, %s host address %p (thread %lu)", mod.c_str(), (unsigned long long)off,
+         er->ExceptionInformation[0] == 1 ? "writing" : "reading", reinterpret_cast<void*>(a), GetCurrentThreadId());
+    log_backtrace();
+    std::fflush(stdout);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 LONG WINAPI on_exception(EXCEPTION_POINTERS* ep) {
     if (InterlockedExchange(&g_in_handler, 1)) return EXCEPTION_CONTINUE_SEARCH;
     auto* er = ep->ExceptionRecord;
@@ -120,6 +138,7 @@ void install(const std::string& dir) {
     std::freopen((g_dir + "stderr.log").c_str(), "w", stderr);
 #ifdef _WIN32
     SetUnhandledExceptionFilter(on_exception);
+    AddVectoredExceptionHandler(0, on_first_chance);
 #else
     std::signal(SIGSEGV, on_signal);
     std::signal(SIGBUS, on_signal);

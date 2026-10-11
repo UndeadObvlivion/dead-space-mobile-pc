@@ -1,20 +1,57 @@
 # Dead Space (2011 mobile) — native PC port
 
-Runs EA/IronMonkey's Android Dead Space on Windows and Linux without an Android emulator.
-The game's own 32-bit ARM code (`libDeadSpace.so`) runs on the dynarmic JIT; everything it
-expects from Android (libc, pthreads, OpenGL ES 1.1, JNI/Java, audio, assets) is reimplemented
-on the host with SDL2 + desktop OpenGL.
+An unofficial, fan-made port that runs EA / IronMonkey's 2011 Android game *Dead Space* natively on
+Windows (and Linux), without an Android emulator. The game's own 32-bit ARM code (`libDeadSpace.so`) runs
+on the dynarmic JIT; everything it expects from Android (libc, pthreads, OpenGL ES 1.1, JNI/Java, audio,
+assets) is reimplemented on the host with SDL2 and desktop OpenGL.
 
-No game data is included: you need your own Dead Space APK.
+On top of the original game the port adds keyboard + mouse and controller play, an optional new renderer
+(dynamic lights, baked shadow maps, ambient occlusion, bloom, anti-aliasing), higher frame rates, texture
+packs, a Quit button, skippable cutscenes and an extended Options menu.
 
-## Running
+**No game data is included.** You need your own copy of the Android game as an APK file. This project is
+not affiliated with or endorsed by Electronic Arts; Dead Space is a trademark of Electronic Arts Inc.
+
+## Installing (Windows)
+
+1. Download `DeadSpaceMobilePCPort-Setup.exe` from the
+   [Releases](../../releases) page and run it.
+2. Choose where to install (the default is a folder in your user profile; no administrator rights are
+   needed) and pick **your Dead Space APK file** when asked. The installer copies the game's data out of
+   the APK into the install folder; this takes a moment and needs about 400 MB.
+3. Start the game from the Start menu or the desktop shortcut.
+
+Windows may warn that the installer is from an unknown publisher: it is not code-signed.
+
+- **Updating**: run a newer installer and choose the same folder. Leave the APK field empty to keep the
+  game data that is already there; saves and settings are kept either way.
+- **Uninstalling**: Settings > Apps > Installed apps > *Dead Space Mobile PC Port*, or run
+  `uninstall.exe` in the install folder. It asks whether to delete your saves too; texture packs you
+  added are left alone.
+- **Which APK**: both the original, unmodified APK and the "fan-fixed" one work. The importer notes which
+  kind it was (the original has ATC textures, the fan-fixed one ETC2 under the same labels). If textures
+  look garbled, start the game once with `--atc-textures` (original APK) to check the other decoding and
+  report it. *(Only the fan-fixed APK has been tested by the author.)*
+- **Where things are** (all inside the install folder): `userdata/` saves and `port_settings.ini`,
+  `gamedata/` the imported game files, `mods/textures/` texture packs, `deadspace.log` the last run's log.
+
+### Without the installer
+
+`deadspace.exe` is a single, statically linked program. Put it in a folder of its own and either place
+your APK next to it (it is imported on first start) or run:
 
 ```
 deadspace --apk <path to Dead Space APK>      # first run: imports the game data into gamedata/
 deadspace                                     # afterwards
 ```
 
-An APK placed next to the executable is imported automatically on first start.
+### Requirements
+
+Windows 10 or 11, 64-bit; a graphics card and driver with OpenGL 3.0 or newer (for the new renderer; a legacy renderer is
+available in Options > Graphics); about 400 MB of disk space. A controller is optional: any pad SDL
+recognises works, with the Dead Space remake's layout by default.
+
+## Playing
 
 In gameplay the mouse is captured; in menus it works as a touch pointer (moving it hides the keyboard
 highlight). The arrows beside //Options at the top of the Options screen turn its pages.
@@ -52,7 +89,7 @@ highlight). The arrows beside //Options at the top of the Options screen turn it
 | F7 | debug view: hitboxes |
 | F8 | switch renderer (legacy / native) |
 
-These are the default bindings. The **Options menu** (title screen or pause menu) has five pages,
+These are the default bindings. The **Options menu** (title screen or pause menu) has six pages,
 named in its header; the last three (Graphics, Controls, Controller) are the port's and scroll vertically (mouse wheel, drag, or just
 moving up / down past the last visible row with the keyboard; a bar at the right shows the position),
 with smaller rows than the game's own pages. Turning a page with the keyboard highlights its first row.
@@ -206,20 +243,15 @@ Enhancements on the native path:
   light near, a faint shadow falls almost straight down. The option level scales the strength. Only with the gameplay camera.
   Dev: `shadows N debug` tints shadowed pixels red and logs the caster count.
 - **Light shadows** (`light_shadows`, default 1): every light that stays in the world (fixtures, lamps,
-  panel glows, fans, beacons) has an identity, a fixed position and a fixed facing. The lights near the
-  player each own a shadow map (24 tiles of 1024x1024 in one atlas) for as long as they stay near: a
-  light gets a map within 14 m, keeps it up to 20 m, and only gives it up to a light that is at least
-  4 m closer. A lamp's map looks out of the lamp toward the open space around it (found once by casting
-  rays through the still scene) and covers 150 degrees; spotlights look along their cone.
-  The **still scene** is kept in world space: every mesh that has stayed exactly in place for a few
-  frames is copied into it the first time it is drawn (and taken out again if it starts to move, like a
-  door). Each map draws the still scene once and keeps that depth in a second atlas; each frame the map
-  starts from the kept depth and only things that move are drawn into it. So shadows do not depend on
-  where the camera looks or where the player stands, and do not change from frame to frame. Beacons
-  turn, so their maps are drawn afresh each frame. Because the fixtures' light is already painted into
-  the level, a blocked fixture darkens the scene there by the blocked share of the fixtures reaching
-  that pixel (90% at most; characters 40%). Short-lived lights (shots, impacts, RIG glow) use a
-  screen-space trace instead. Lamps less than 0.8 m apart are one light.
+  panel glows, fans, beacons) has an identity, a fixed position and a fixed facing. A lamp looks out
+  toward the open space around it (found once by casting rays through the still scene) and covers 150
+  degrees; spotlights look along their cone. The **still scene** is kept in world space: every mesh that
+  has stayed exactly in place for a few frames is copied into it the first time it is drawn (and taken
+  out again if it starts to move, like a door). Each fixed light has a kept ("baked") map of that still
+  scene and, near the player, a live tile for what moves: see *Baked shadow maps* below. Because the
+  fixtures' light is already painted into the level, a blocked fixture darkens the scene there by the
+  blocked share of the fixtures reaching that pixel (characters 40% of that). Short-lived lights (shots,
+  impacts, RIG glow) use a screen-space trace instead. Lamps less than 0.8 m apart are one light.
   Dev: `shadows 2 debug` logs map and still-scene counts, `lightshadows 1 N`, `lightshade 0-1`,
   `probe X Y Z R` lists the lights and maps near a point.
 - **Light Contrast** (`light_contrast`, 0-3, default 2 = Medium): the environment light. The game's
@@ -425,6 +457,15 @@ ninja -C build
 
 The Windows build is linked statically: `deadspace.exe` needs no extra DLLs.
 
+The installer (`installer/installer.cpp`, a small Win32 program with the stripped `deadspace.exe`
+embedded as a resource and `src/apk.cpp` for the import) is built with:
+
+```
+bash tools/mkinstaller.sh        # -> release/DeadSpaceMobilePCPort-Setup.exe
+```
+
+`setup.exe /silent <folder> <apk>` installs without a window (exit code 0 on success), for tests.
+
 ### Linux (x86-64)
 
 ```
@@ -441,12 +482,25 @@ ninja -C build
 - `src/hle/` — bionic libc, stdio, printf/scanf, pthreads, liblog, GLES 1.1 -> OpenGL, timing
 - `src/jni/` — JNIEnv/JavaVM tables and host versions of the Java classes the game calls
 - `src/apk.*` — APK (zip) import
-- `src/sbin.*`, `src/game_patches.*` — patches the game's menu data (SBIN databases) and hooks
-  OptionsPanel to add the Anti-Aliasing option
+- `installer/` — the Windows installer / uninstaller
+- `src/render/native.*`, `src/lights.*` — the new renderer: lighting, shadow maps, post-processing
+- `src/texpack.*` — texture packs
+- `src/input.*`, `src/menu_nav.*` — keyboard, mouse and controller; menu navigation
+- `src/sbin.*`, `src/game_patches.*` — patches the game's menu data (SBIN databases): the extra Options
+  pages, keyboard / controller wording, the main menu's Quit button
 - `src/settings.*` — port settings (`userdata/port_settings.ini`)
 - `tools/` — dex disassembler, ARM disassembly helpers, texture/screenshot utilities
 
-## Notes on this APK
+## Notes on the APK
 
-The "fan-fixed" APK re-encoded the textures as ETC2 while the game still labels them ATC;
-the port decodes them as ETC2. For an unmodified APK pass `--atc-textures`.
+The "fan-fixed" APK re-encoded the textures as ETC2 while the game still labels them ATC, and keeps the
+original ARM library under `assets/guest_libs`; the port decodes its textures as ETC2. An unmodified APK
+(library under `lib/armeabi*`) has real ATC textures: the importer leaves a note (`gamedata/atc_textures`)
+and the game then uses the ATC decoder; `--atc-textures` forces it.
+
+## Legal
+
+This is a fan project for people who own the game. The repository and the installer contain none of the
+game's code, data or assets; they are read from the user's own APK on the user's machine. Dead Space is a
+trademark of Electronic Arts Inc. The port's own source is in this repository; `external/dynarmic` is
+under its own licence.

@@ -1,0 +1,25 @@
+// The game program the installer writes out (made by tools/mkinstaller.sh from build/deadspace.exe).
+PAYLOAD_EXE RCDATA "payload/deadspace.exe"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "Dead Space Mobile PC Port - Setup"
+            VALUE "ProductName", "Dead Space Mobile PC Port"
+            VALUE "FileVersion", "1.0.0"
+            VALUE "ProductVersion", "1.0.0"
+            VALUE "Comments", "Fan project. Contains no game data: the user supplies their own APK."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+1 24 "installer.manifest"

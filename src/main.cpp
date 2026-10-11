@@ -301,6 +301,10 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+    {  // (left by the importer when the APK was an unmodified one; --atc-textures forces it)
+        std::error_code ec;
+        if (fs::exists(gamedata + "/atc_textures", ec)) hle::g_real_atc = true;
+    }
     if (assets.empty())
         assets = first_existing({gamedata + "/assets", base + "../apk/assets", "apk/assets"});
     if (lib.empty())
@@ -309,7 +313,7 @@ int main(int argc, char** argv) {
     if (assets.empty() || lib.empty()) {
         LOGE("could not find the game files. Run once with --apk <Dead Space APK> (or put the APK next to the exe)");
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Dead Space",
-                                 "Game data not found.\n\nPut your Dead Space APK next to deadspace.exe and start it "
+                                 "Game data not found.\n\nRun the installer again and pick your Dead Space APK, or put the APK next to deadspace.exe and start it "
                                  "again, or run:  deadspace --apk <path to APK>",
                                  nullptr);
         return 1;

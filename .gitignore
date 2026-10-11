@@ -35,3 +35,6 @@ userdata/
 /devrun_*_data/
 /survey/
 /.local/
+/installer/payload/
+/release/
+/.claude/

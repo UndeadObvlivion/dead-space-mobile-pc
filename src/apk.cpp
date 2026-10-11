@@ -109,12 +109,14 @@ bool import(const std::string& apk_path, const std::string& dest_dir) {
     const char* lib_candidates[] = {"assets/guest_libs/libDeadSpace.so", "lib/armeabi/libDeadSpace.so",
                                     "lib/armeabi-v7a/libDeadSpace.so"};
     std::vector<uint8_t> lib;
+    bool original = false;  // the library came from the APK's own lib/ folder: an unmodified APK
     for (const char* cand : lib_candidates)
         for (auto& e : entries)
             if (e.name == cand && lib.empty()) {
                 std::vector<uint8_t> d;
                 if (extract(f, e, d) && is_arm32_elf(d)) {
                     lib = std::move(d);
+                    original = std::strncmp(cand, "lib/", 4) == 0;
                     LOGI("game library: %s", cand);
                 }
             }
@@ -143,6 +145,11 @@ bool import(const std::string& apk_path, const std::string& dest_dir) {
     }
     std::ofstream o(dest / "libDeadSpace.so", std::ios::binary);
     o.write(reinterpret_cast<const char*>(lib.data()), std::streamsize(lib.size()));
+    // An unmodified APK has ATC textures; the "fan-fixed" one (which keeps the ARM library under
+    // assets/guest_libs) re-encoded them as ETC2 under the same labels. The game reads this note at start.
+    std::error_code ec;
+    if (original) std::ofstream(dest / "atc_textures") << "The textures in this folder are real ATC (imported from an unmodified APK)." << std::endl;
+    else fs::remove(dest / "atc_textures", ec);
     LOGI("imported %zu asset files (%.1f MB) into %s", n, bytes / 1048576.0, dest_dir.c_str());
     return true;
 }

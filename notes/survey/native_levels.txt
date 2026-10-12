@@ -1,9 +1,0 @@
-01_gov_01: ok, GL errors: 0, filtering on: 1
-01_gov_02: ok, GL errors: 0, filtering on: 1
-01_gov_03: ok, GL errors: 0, filtering on: 1
-01_gov_04: ok, GL errors: 0, filtering on: 1
-02_mines_01: ok, GL errors: 0, filtering on: 1
-02_mines_02: ok, GL errors: 0, filtering on: 1
-02_mines_03: ok, GL errors: 0, filtering on: 1
-03_water_01: ok, GL errors: 0, filtering on: 1
-ALLDONE (stopped after 8 levels)

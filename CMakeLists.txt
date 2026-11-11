@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(deadspace_port CXX C)
 
+if (WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (NOT CMAKE_BUILD_TYPE)
@@ -58,6 +62,7 @@ if (WIN32)
     # fully static: the exe runs without any MSYS2 DLLs next to it
     target_link_libraries(deadspace PRIVATE SDL2::SDL2-static z ws2_32 winmm dbghelp)
     target_link_options(deadspace PRIVATE -static)
+    target_sources(deadspace PRIVATE src/deadspace.rc)
 else()
     target_link_libraries(deadspace PRIVATE SDL2::SDL2 ZLIB::ZLIB pthread dl)
 endif()

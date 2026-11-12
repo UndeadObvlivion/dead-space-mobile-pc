@@ -125,7 +125,13 @@ void register_java_classes() {
         std::string name = string_value(a[0].l());
         auto st = std::make_shared<AssetStream>();
         st->mem = patches::asset(name);
-        if (!st->mem) st->f = std::fopen(asset_path(name).c_str(), "rb");
+        if (!st->mem) {
+            std::error_code ec;
+            auto p = asset_path(name);
+            if (!fs::is_directory(p, ec)) {
+                st->f = std::fopen(p.c_str(), "rb");
+	    }
+        }
         if (!st->mem && !st->f) LOGW("missing asset %s", name.c_str());
         else LOGD("AssetManager.open(%s) -> %s", name.c_str(), st->mem ? "patched" : "ok");
         if (!st->open()) {

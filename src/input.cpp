@@ -994,6 +994,7 @@ bool pad_event(const SDL_Event& e) {
         if (!g_pad) {
             g_pad = SDL_GameControllerOpen(e.cdevice.which);
             LOGI("input: controller connected: %s", g_pad ? SDL_GameControllerName(g_pad) : SDL_GetError());
+            if (g_pad) g_pad_active = true;
         }
         return true;
     case SDL_CONTROLLERDEVICEREMOVED:
@@ -1005,6 +1006,7 @@ bool pad_event(const SDL_Event& e) {
                 if (g_pad_down[c]) pad_button(kPadCode + c, false);
             std::memset(g_axis, 0, sizeof g_axis);
             LOGI("input: controller disconnected");
+            if (!g_mouse_captured) SDL_ShowCursor(SDL_ENABLE);
         }
         return true;
     case SDL_CONTROLLERBUTTONDOWN:
@@ -1052,8 +1054,13 @@ bool event(const SDL_Event& e, SDL_Window* win) {
     if (pad_event(e)) return true;
     // keyboard or mouse in use again: prompts go back to keys
     if ((e.type == SDL_KEYDOWN && e.key.keysym.unused != kSynth) || e.type == SDL_MOUSEBUTTONDOWN ||
-        (e.type == SDL_MOUSEMOTION && std::abs(e.motion.xrel) + std::abs(e.motion.yrel) > 6))
+        (e.type == SDL_MOUSEMOTION && std::abs(e.motion.xrel) + std::abs(e.motion.yrel) > 6)) {
         g_pad_active = false;
+        // In menus, mouse input makes the cursor visible again.
+        if (!g_mouse_captured && (e.type == SDL_MOUSEBUTTONDOWN ||
+            (e.type == SDL_MOUSEMOTION && std::abs(e.motion.xrel) + std::abs(e.motion.yrel) > 6)))
+            SDL_ShowCursor(SDL_ENABLE);
+    }
     if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
         SDL_Scancode sc = e.key.keysym.scancode;
         if (sc > 0 && sc < SDL_NUM_SCANCODES) g_keys[sc] = e.type == SDL_KEYDOWN;
@@ -1211,6 +1218,13 @@ bool frame(SDL_Window* win) {
             g_moving = false;
         }
         if (!want) g_rmb = g_lmb = false;
+    }
+    // Cursor visibility: always hidden during gameplay; in menus hidden when a controller is active,
+    // visible only when the mouse was last used (SDL_ShowCursor is called from event() on mouse input).
+    if (g_mouse_captured) {
+        SDL_ShowCursor(SDL_DISABLE);
+    } else if (g_pad_active) {
+        SDL_ShowCursor(SDL_DISABLE);
     }
     if (!g_mouse_captured) {
         // menus: the left stick moves the highlight like the D-pad (with repeat)

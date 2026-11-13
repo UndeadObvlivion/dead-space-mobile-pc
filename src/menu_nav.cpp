@@ -131,8 +131,26 @@ std::vector<Button> all_buttons() {
     std::vector<Button> out;
     static u32 rect = mem::heap_alloc(16, 8);
     float k = std::min(g_screen_w / 480.0f, g_screen_h / 320.0f);  // layout units -> pixels
-    for (auto& [b, seen] : g_seen) {
-        if (seen.frame + 1 < g_frame) continue;
+    for (auto it = g_seen.begin(); it != g_seen.end(); ) {
+        u32 b = it->first;
+        const Seen& seen = it->second;
+        if (seen.frame + 1 < g_frame) {
+            it = g_seen.erase(it);
+            continue;
+        }
+        // Check validity, enabled flag (+0x24), and sub-layout (+0x38) BEFORE calling
+        // LayoutButton::getActiveRect(), so destroyed/detached Bench nodes don't crash.
+        if (b < 0x10000 || mem::r32(b) < 0x10000) {
+            it = g_seen.erase(it);
+            continue;
+        }
+        u32 sub = mem::r32(b + 0x38);
+        if (!mem::r8(b + 0x24) || (sub && (sub < 0x10000 || !mem::r8(sub + 0x54)))) {
+            ++it;
+            continue;
+        }
+        ++it;
+
         cpu::call(fn_rect, {rect, b});
         float r[4];
         std::memcpy(r, mem::host(rect), 16);
@@ -307,7 +325,6 @@ void install() {
     if (u32 f = elf::find(("_ZN9BenchItem" + draw).c_str())) cpu::hook_entry(f, "BenchItem::draw", on_bench_item_draw);
     for (const char* sym : {"_ZN10StorePanel7onEventERKN2im5EventE", "_ZN10BenchPanel7onEventERKN2im5EventE"})
         if (u32 f = elf::find(sym)) cpu::hook_entry(f, "list panel onEvent", on_panel_event);
-
 }
 
 void set_tap(std::function<void(float, float)> tap) { g_tap = std::move(tap); }

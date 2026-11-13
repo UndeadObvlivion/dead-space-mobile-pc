@@ -496,7 +496,7 @@ int main(int argc, char** argv) {
             case SDL_QUIT: g_quit = true; break;
             case SDL_MOUSEBUTTONDOWN:
                 if (e.button.button == SDL_BUTTON_LEFT && to_game(e.button.x, e.button.y, gx, gy)) {
-                    if (patches::options_click(gx, gy)) break;  // options header page arrows
+                    if (patches::options_click(gx, gy) || menu_nav::click(gx, gy)) break;  // options header page arrows or quit button
                     mouse_down = true;
                     send_touch(g_touch.down, 0, gx, gy);
                 }

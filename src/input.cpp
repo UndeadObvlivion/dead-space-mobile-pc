@@ -943,7 +943,8 @@ void pad_button(int code, bool down) {
     if (!g_mouse_captured) {
         // menus, cinematics, loading screens: the D-pad moves the highlight, A confirms, B / Start go back
         if (!down) return;
-        bool in_rig = g_hud && fn_in_rig && (cpu::call(fn_in_rig, {g_hud}) & 0xff);
+        bool in_pause = g_hud && fn_in_pause_menu && (cpu::call(fn_in_pause_menu, {g_hud}) & 0xff);
+        bool in_rig = !in_pause && g_hud && fn_in_rig && (cpu::call(fn_in_rig, {g_hud}) & 0xff);
         switch (b) {
         case SDL_CONTROLLER_BUTTON_DPAD_UP: synth_key(SDL_SCANCODE_UP, SDLK_UP); break;
         case SDL_CONTROLLER_BUTTON_DPAD_DOWN: synth_key(SDL_SCANCODE_DOWN, SDLK_DOWN); break;
@@ -953,6 +954,7 @@ void pad_button(int code, bool down) {
         case SDL_CONTROLLER_BUTTON_B:
         case SDL_CONTROLLER_BUTTON_START:
             if (in_rig) hud_button(g_hud, "BTN_RIG");  // (the back key would open the pause menu over it)
+            else if (in_pause && mem::r32(g_hud + 0x298) == 2) hud_button(g_hud, "BTN_PLAY_PAUSE");
             else back_key();
             break;
         default:
@@ -1098,14 +1100,16 @@ bool event(const SDL_Event& e, SDL_Window* win) {
         return true;
     }
     // the RIG key closes the RIG menu (it is a menu: gameplay keys are not handled while it is open)
+    bool in_pause = g_hud && fn_in_pause_menu && (cpu::call(fn_in_pause_menu, {g_hud}) & 0xff);
     if (e.type == SDL_KEYDOWN && !e.key.repeat && int(e.key.keysym.scancode) == g_bind[B_RIG] && g_hud &&
-        fn_in_rig && (cpu::call(fn_in_rig, {g_hud}) & 0xff)) {
+        !in_pause && fn_in_rig && (cpu::call(fn_in_rig, {g_hud}) & 0xff)) {
         hud_button(g_hud, "BTN_RIG");  // same as tapping the RIG icon again
         return true;
     }
     // Esc always maps to the Android back button (pause in game, back in menus)
     if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE && !e.key.repeat) {
-        back_key();
+        if (in_pause && mem::r32(g_hud + 0x298) == 2) hud_button(g_hud, "BTN_PLAY_PAUSE");
+        else back_key();
         return true;
     }
     if (!g_mouse_captured) return false;
